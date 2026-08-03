@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import textwrap
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -76,17 +75,16 @@ def _procedural_frame(raw: Image.Image) -> Image.Image:
     return canvas
 
 
-def _wrap_title(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
+def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
     words = text.split()
     lines: list[str] = []
     current = ""
     for word in words:
         candidate = f"{current} {word}".strip()
-        if draw.textlength(candidate, font=font) <= max_width:
+        if draw.textlength(candidate, font=font) <= max_width or not current:
             current = candidate
         else:
-            if current:
-                lines.append(current)
+            lines.append(current)
             current = word
     if current:
         lines.append(current)
@@ -112,11 +110,26 @@ def render_shot(
     margin = round(canvas_w * _MARGIN_RATIO)
     title_area_h = round(canvas_h * _TITLE_AREA_RATIO)
 
+    text_max_width = canvas_w - margin * 2
+
     title_font = _font(cfg.style.font_bold, round(canvas_w * 0.062))
-    lines = _wrap_title(draw, title, title_font, canvas_w - margin * 2)
+    lines = _wrap_text(draw, title, title_font, text_max_width)
     line_height = title_font.size + round(title_font.size * 0.3)
     text_block_h = line_height * len(lines)
-    text_top = round((title_area_h - text_block_h) / 2)
+
+    sub_lines: list[str] = []
+    sub_font: ImageFont.FreeTypeFont | None = None
+    sub_line_height = 0
+    sub_gap = 0
+    if subtitle:
+        sub_font = _font(cfg.style.font_regular, round(canvas_w * 0.032))
+        sub_lines = _wrap_text(draw, subtitle, sub_font, text_max_width)
+        sub_line_height = sub_font.size + round(sub_font.size * 0.3)
+        sub_gap = round(sub_font.size * 0.5)
+
+    total_text_h = text_block_h + (sub_gap + sub_line_height * len(sub_lines) if sub_lines else 0)
+    text_top = round((max(title_area_h, total_text_h) - total_text_h) / 2)
+
     for i, line in enumerate(lines):
         w = draw.textlength(line, font=title_font)
         draw.text(
@@ -126,15 +139,18 @@ def render_shot(
             fill=title_color,
         )
 
-    if subtitle:
-        sub_font = _font(cfg.style.font_regular, round(canvas_w * 0.032))
-        w = draw.textlength(subtitle, font=sub_font)
-        draw.text(
-            ((canvas_w - w) / 2, text_top + text_block_h + round(sub_font.size * 0.5)),
-            subtitle,
-            font=sub_font,
-            fill=title_color,
-        )
+    if sub_lines:
+        sub_top = text_top + text_block_h + sub_gap
+        for i, line in enumerate(sub_lines):
+            w = draw.textlength(line, font=sub_font)
+            draw.text(
+                ((canvas_w - w) / 2, sub_top + i * sub_line_height),
+                line,
+                font=sub_font,
+                fill=title_color,
+            )
+
+    title_area_h = max(title_area_h, total_text_h)
 
     raw = Image.open(raw_path)
     framed = _framed_device_image(raw, device)

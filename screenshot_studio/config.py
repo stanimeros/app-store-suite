@@ -11,8 +11,6 @@ class AppConfig:
     name: str
     flutter_dir: Path
     icon_source: Path
-    bundle_id_ios: str = ""
-    package_id_android: str = ""
 
 
 @dataclass
@@ -64,8 +62,6 @@ def load_config(path: str | Path) -> StudioConfig:
         name=app_raw["name"],
         flutter_dir=flutter_dir,
         icon_source=flutter_dir / app_raw["icon_source"],
-        bundle_id_ios=app_raw.get("bundle_id_ios", ""),
-        package_id_android=app_raw.get("package_id_android", ""),
     )
 
     devices: dict[str, DeviceConfig] = {}

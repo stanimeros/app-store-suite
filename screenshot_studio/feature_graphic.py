@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
-from .compose import _font, _hex_to_rgb, _wrap_title
+from .compose import _font, _hex_to_rgb, _wrap_text
 from .config import StudioConfig
 
 WIDTH, HEIGHT = 1024, 500
@@ -32,7 +32,7 @@ def generate_feature_graphic(cfg: StudioConfig, headline: str) -> Path:
 
     font = _font(cfg.style.font_bold, 64)
     max_text_width = WIDTH - text_left - margin
-    lines = _wrap_title(draw, headline, font, max_text_width)
+    lines = _wrap_text(draw, headline, font, max_text_width)
     line_height = font.size + round(font.size * 0.25)
     block_h = line_height * len(lines)
     top = (HEIGHT - block_h) // 2

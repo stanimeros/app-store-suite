@@ -1,8 +1,6 @@
 app:
   name: Chronal
   flutter_dir: /Users/stanimeros/Developer/chronal
-  bundle_id_ios: com.stanimeros.chronal
-  package_id_android: com.stanimeros.chronal
   icon_source: assets/icon/icon.png # must be >=1024x1024
 
 devices:

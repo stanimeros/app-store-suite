@@ -257,6 +257,7 @@ const ICON_TRASH = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="cu
 
 let lastStateJson = null;
 let builtDeviceCols = false;
+let currentState = null;
 const deviceEls = new Map();       // key -> {btn, progressEl}
 const deviceOrder = [];            // device keys, in table column order
 const rowEls = new Map();          // shotId -> {tr, titleEl, subtitleEl, cells: Map(deviceKey -> {td, img})}
@@ -348,6 +349,7 @@ function ensureRow(shotId) {
 }
 
 function patch(state) {
+  currentState = state;
   const currentIds = new Set(state.shots.map((s) => s.id));
   for (const [id, row] of rowEls) {
     if (!currentIds.has(id)) {
@@ -449,6 +451,7 @@ async function selectDevice(key) {
 }
 
 async function submitCapture(name) {
+  const deviceKey = currentState && currentState.active_device;
   const res = await fetch('/api/capture', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -459,7 +462,15 @@ async function submitCapture(name) {
     alert(body.error || 'Capture failed');
     return;
   }
-  fetchState();
+  const body = await res.json();
+  lastStateJson = null; // force fetchState to re-render even if booleans are unchanged
+  await fetchState();
+  if (deviceKey && body.shot_id) {
+    const cell = rowEls.get(body.shot_id)?.cells.get(deviceKey);
+    if (cell && cell.img) {
+      cell.img.src = `/api/raw/${deviceKey}/${body.shot_id}.png?t=${Date.now()}`;
+    }
+  }
 }
 
 async function doCapture() {
