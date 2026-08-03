@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
@@ -23,13 +23,6 @@ class DeviceConfig:
 
 
 @dataclass
-class ShotConfig:
-    id: str
-    title: str
-    subtitle: str = ""
-
-
-@dataclass
 class StyleConfig:
     background_color: str = "#FAFAF8"
     title_color: str = "#1A1A1A"
@@ -41,7 +34,6 @@ class StyleConfig:
 class StudioConfig:
     app: AppConfig
     devices: dict[str, DeviceConfig]
-    shots: list[ShotConfig]
     style: StyleConfig
     config_path: Path
 
@@ -56,6 +48,10 @@ class StudioConfig:
     @property
     def store_dir(self) -> Path:
         return self.output_dir / "store"
+
+    @property
+    def titles_path(self) -> Path:
+        return self.output_dir / "titles.json"
 
 
 def load_config(path: str | Path) -> StudioConfig:
@@ -81,11 +77,6 @@ def load_config(path: str | Path) -> StudioConfig:
         else:
             raise ValueError(f"Device '{key}' must define either 'simulator' or 'avd'")
 
-    shots = [
-        ShotConfig(id=s["id"], title=s["title"], subtitle=s.get("subtitle", ""))
-        for s in raw["shots"]
-    ]
-
     style_raw = raw.get("style", {})
     style = StyleConfig(
         background_color=style_raw.get("background_color", "#FAFAF8"),
@@ -94,4 +85,4 @@ def load_config(path: str | Path) -> StudioConfig:
         font_regular=style_raw.get("font_regular", "Poppins-Regular.ttf"),
     )
 
-    return StudioConfig(app=app, devices=devices, shots=shots, style=style, config_path=path)
+    return StudioConfig(app=app, devices=devices, style=style, config_path=path)

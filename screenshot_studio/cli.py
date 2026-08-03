@@ -53,6 +53,13 @@ def cmd_capture(args: argparse.Namespace) -> None:
     run_capture(cfg, only_device=args.device)
 
 
+def cmd_ui(args: argparse.Namespace) -> None:
+    from .webui import launch_web_ui  # deferred: flask only needed here
+
+    cfg = load_config(args.config)
+    launch_web_ui(cfg, port=args.port)
+
+
 def cmd_compose(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
     outputs = compose_all(cfg, only_device=args.device)
@@ -84,6 +91,11 @@ def main(argv: list[str] | None = None) -> None:
     p_capture.add_argument("--config", required=True)
     p_capture.add_argument("--device", help="Only capture this device key from the config")
     p_capture.set_defaults(func=cmd_capture)
+
+    p_ui = sub.add_parser("ui", help="Open the local web capture UI: pick a device, capture shots with a button")
+    p_ui.add_argument("--config", required=True)
+    p_ui.add_argument("--port", type=int, default=5175)
+    p_ui.set_defaults(func=cmd_ui)
 
     p_compose = sub.add_parser("compose", help="Frame + brand raw screenshots into store-ready images")
     p_compose.add_argument("--config", required=True)

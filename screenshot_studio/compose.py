@@ -7,7 +7,8 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from . import devices as devices_mod
-from .config import DeviceConfig, ShotConfig, StudioConfig
+from . import titles_store
+from .config import DeviceConfig, StudioConfig
 from .frames import fetch as frames_fetch
 
 _FONTS_DIR = Path(__file__).parent / "fonts"
@@ -92,7 +93,15 @@ def _wrap_title(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFo
     return lines or [text]
 
 
-def render_shot(cfg: StudioConfig, device_key: str, device: DeviceConfig, shot: ShotConfig, raw_path: Path) -> Path:
+def render_shot(
+    cfg: StudioConfig,
+    device_key: str,
+    device: DeviceConfig,
+    shot_id: str,
+    title: str,
+    subtitle: str,
+    raw_path: Path,
+) -> Path:
     canvas_w, canvas_h = devices_mod.store_resolution(device)
     bg_color = _hex_to_rgb(cfg.style.background_color)
     title_color = _hex_to_rgb(cfg.style.title_color)
@@ -104,7 +113,7 @@ def render_shot(cfg: StudioConfig, device_key: str, device: DeviceConfig, shot: 
     title_area_h = round(canvas_h * _TITLE_AREA_RATIO)
 
     title_font = _font(cfg.style.font_bold, round(canvas_w * 0.062))
-    lines = _wrap_title(draw, shot.title, title_font, canvas_w - margin * 2)
+    lines = _wrap_title(draw, title, title_font, canvas_w - margin * 2)
     line_height = title_font.size + round(title_font.size * 0.3)
     text_block_h = line_height * len(lines)
     text_top = round((title_area_h - text_block_h) / 2)
@@ -117,12 +126,12 @@ def render_shot(cfg: StudioConfig, device_key: str, device: DeviceConfig, shot: 
             fill=title_color,
         )
 
-    if shot.subtitle:
+    if subtitle:
         sub_font = _font(cfg.style.font_regular, round(canvas_w * 0.032))
-        w = draw.textlength(shot.subtitle, font=sub_font)
+        w = draw.textlength(subtitle, font=sub_font)
         draw.text(
             ((canvas_w - w) / 2, text_top + text_block_h + round(sub_font.size * 0.5)),
-            shot.subtitle,
+            subtitle,
             font=sub_font,
             fill=title_color,
         )
@@ -141,7 +150,7 @@ def render_shot(cfg: StudioConfig, device_key: str, device: DeviceConfig, shot: 
     paste_y = canvas_h - margin - framed_resized.height
     canvas.paste(framed_resized, (paste_x, paste_y), framed_resized)
 
-    dest = cfg.store_dir / device_key / f"{shot.id}.png"
+    dest = cfg.store_dir / device_key / f"{shot_id}.png"
     dest.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(dest)
     return dest
@@ -149,14 +158,18 @@ def render_shot(cfg: StudioConfig, device_key: str, device: DeviceConfig, shot: 
 
 def compose_all(cfg: StudioConfig, only_device: str | None = None) -> list[Path]:
     devices = {only_device: cfg.devices[only_device]} if only_device else cfg.devices
+    titles = titles_store.load_titles(cfg)
     outputs: list[Path] = []
     for device_key, device in devices.items():
-        for shot in cfg.shots:
-            raw_path = cfg.raw_dir / device_key / f"{shot.id}.png"
-            if not raw_path.exists():
-                print(f"  skip {device_key}/{shot.id}: no raw screenshot at {raw_path}")
-                continue
-            dest = render_shot(cfg, device_key, device, shot, raw_path)
+        device_raw_dir = cfg.raw_dir / device_key
+        if not device_raw_dir.exists():
+            continue
+        for raw_path in sorted(device_raw_dir.glob("*.png")):
+            shot_id = raw_path.stem
+            meta = titles.get(shot_id, {})
+            title = meta.get("title") or shot_id.replace("_", " ").title()
+            subtitle = meta.get("subtitle", "")
+            dest = render_shot(cfg, device_key, device, shot_id, title, subtitle, raw_path)
             outputs.append(dest)
             print(f"  composed {dest}")
     return outputs

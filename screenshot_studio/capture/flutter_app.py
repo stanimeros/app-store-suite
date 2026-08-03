@@ -18,6 +18,21 @@ class FlutterLaunchError(RuntimeError):
     pass
 
 
+def find_running_pid(device_id: str) -> int | None:
+    """PID of an already-running `flutter run -d <device_id>` process, if any.
+
+    Catches sessions we didn't start ourselves — e.g. left over from a previous
+    `shotstudio` process, or launched by hand — so we don't spawn a duplicate
+    attached to the same device.
+    """
+    result = subprocess.run(
+        ["pgrep", "-f", f"flutter_tools.snapshot run .*-d {device_id}"],
+        capture_output=True, text=True,
+    )
+    pids = [int(p) for p in result.stdout.split()]
+    return pids[0] if pids else None
+
+
 def launch(flutter_dir: Path, device_id: str) -> tuple[subprocess.Popen, Path]:
     """Starts `flutter run -d <device_id>` in the background, logging to a temp file.
 

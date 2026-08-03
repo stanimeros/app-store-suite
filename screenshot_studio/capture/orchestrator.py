@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .. import ai_titles, titles_store
 from ..config import DeviceConfig, StudioConfig
 from . import android, flutter_app, ios
 
@@ -17,16 +18,30 @@ def run_capture(cfg: StudioConfig, only_device: str | None = None) -> None:
 
 
 def _run_shot_loop(cfg: StudioConfig, device_key: str, take_screenshot) -> None:
-    print("App is running. Walk through the shots below.")
-    for shot in cfg.shots:
-        prompt = f"[{device_key}] Navigate to: {shot.title!r} (id={shot.id}) — press Enter to capture, or 's' to skip: "
-        answer = input(prompt).strip().lower()
-        if answer == "s":
-            print(f"  skipped {shot.id}")
-            continue
-        dest = cfg.raw_dir / device_key / f"{shot.id}.png"
+    print(
+        "App is running. Navigate to a screen, then type a short name for it "
+        "(e.g. 'home', 'map') and press Enter to capture. Leave blank to finish this device."
+    )
+    existing_titles = titles_store.load_titles(cfg)
+    while True:
+        shot_id = input(f"[{device_key}] shot name (blank to finish): ").strip()
+        if not shot_id:
+            break
+        dest = cfg.raw_dir / device_key / f"{shot_id}.png"
         take_screenshot(dest)
         print(f"  saved {dest}")
+
+        if shot_id in existing_titles:
+            print(f"  title already set: {existing_titles[shot_id]['title']!r}")
+            continue
+        try:
+            print("  asking claude for a title...")
+            suggestion = ai_titles.suggest_title(dest, cfg.app.name)
+            titles_store.save_title(cfg, shot_id, suggestion["title"], suggestion.get("subtitle", ""))
+            existing_titles[shot_id] = suggestion
+            print(f"  title: {suggestion['title']!r}  subtitle: {suggestion.get('subtitle', '')!r}")
+        except ai_titles.TitleSuggestionError as exc:
+            print(f"  WARNING: title suggestion failed ({exc}); edit output/titles.json manually")
 
 
 def _run_ios_device(cfg: StudioConfig, key: str, device: DeviceConfig) -> None:

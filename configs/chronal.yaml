@@ -15,19 +15,10 @@ devices:
   android_tablet:
     avd: "Pixel_Tablet"
 
-shots:
-  - id: home
-    title: "Plan every trip in one place"
-  - id: itinerary
-    title: "Your itinerary, day by day"
-  - id: map
-    title: "See it all on the map"
-  - id: places
-    title: "Discover places to go"
-  - id: budget
-    title: "Keep your budget on track"
-  - id: packing
-    title: "Never forget what to pack"
+# No fixed shot list: capture whatever screens you want, naming each one as you
+# go (e.g. "home", "itinerary", "map"). Titles are suggested automatically by
+# the `claude` CLI from the actual screenshot content and stored in
+# output/titles.json, shared across all devices for the same shot id.
 
 style:
   background_color: "#FAFAF8"
