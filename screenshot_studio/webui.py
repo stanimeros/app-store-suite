@@ -96,42 +96,7 @@ class Studio:
                 prev.flutter_proc = None
                 prev.app_running = False
 
-            session = self.sessions[key]
-            device = session.device
-
-            if device.kind == "ios":
-                udid = ios.find_udid(device.identifier)
-                was_running = ios.device_state(udid) == "Booted"
-                self._set_status(
-                    f"{device.identifier} already running, reusing it."
-                    if was_running
-                    else f"Booting {device.identifier}..."
-                )
-                ios.boot(udid)
-                session.identifier = udid
-                session.we_booted = not was_running
-            else:
-                existing = android.find_running_serial(device.identifier)
-                if existing:
-                    self._set_status(f"{device.identifier} already running as {existing}, reusing it.")
-                    session.identifier = existing
-                    session.we_booted = False
-                else:
-                    self._set_status(f"Booting emulator {device.identifier}...")
-                    android.boot(device.identifier)
-                    session.identifier = android.wait_for_serial()
-                    session.we_booted = True
-
-            existing_pid = flutter_app.find_running_pid(session.identifier)
-            if existing_pid:
-                self._set_status(f"{self.cfg.app.name} already running on {key} (pid {existing_pid}), reusing it.")
-                session.flutter_proc = None
-            else:
-                self._set_status(f"Launching {self.cfg.app.name} on {key}... (this can take a minute)")
-                proc, log_path = flutter_app.launch(self.cfg.app.flutter_dir, session.identifier)
-                session.flutter_proc = proc
-                flutter_app.wait_until_ready(log_path)
-            session.app_running = True
+            self._activate(key)
 
             with self.lock:
                 self.active_key = key
@@ -144,6 +109,75 @@ class Studio:
         finally:
             with self.lock:
                 self.busy = False
+
+    def restart_device(self, key: str) -> None:
+        with self.lock:
+            if self.busy:
+                return
+            self.busy = True
+            self.status = f"Restarting {key}..."
+        threading.Thread(target=self._restart_worker, args=(key,), daemon=True).start()
+
+    def _restart_worker(self, key: str) -> None:
+        try:
+            session = self.sessions[key]
+            session.identifier = None
+            session.flutter_proc = None
+            session.app_running = False
+            session.we_booted = False
+
+            self._activate(key)
+
+            with self.lock:
+                self.active_key = key
+                self.status = f"{key}: app running — capture away"
+                self.error = None
+        except Exception as exc:  # noqa: BLE001
+            with self.lock:
+                self.error = str(exc)
+                self.status = "Error — see message below"
+        finally:
+            with self.lock:
+                self.busy = False
+
+    def _activate(self, key: str) -> None:
+        """Boots the device (if needed) and launches the app on it, updating that session in place."""
+        session = self.sessions[key]
+        device = session.device
+
+        if device.kind == "ios":
+            udid = ios.find_udid(device.identifier)
+            was_running = ios.device_state(udid) == "Booted"
+            self._set_status(
+                f"{device.identifier} already running, reusing it."
+                if was_running
+                else f"Booting {device.identifier}..."
+            )
+            ios.boot(udid)
+            session.identifier = udid
+            session.we_booted = not was_running
+        else:
+            existing = android.find_running_serial(device.identifier)
+            if existing:
+                self._set_status(f"{device.identifier} already running as {existing}, reusing it.")
+                session.identifier = existing
+                session.we_booted = False
+            else:
+                self._set_status(f"Booting emulator {device.identifier}...")
+                android.boot(device.identifier)
+                session.identifier = android.wait_for_serial()
+                session.we_booted = True
+
+        existing_pid = flutter_app.find_running_pid(session.identifier)
+        if existing_pid:
+            self._set_status(f"{self.cfg.app.name} already running on {key} (pid {existing_pid}), reusing it.")
+            session.flutter_proc = None
+        else:
+            self._set_status(f"Launching {self.cfg.app.name} on {key}... (this can take a minute)")
+            proc, log_path = flutter_app.launch(self.cfg.app.flutter_dir, session.identifier)
+            session.flutter_proc = proc
+            flutter_app.wait_until_ready(log_path)
+        session.app_running = True
 
     def capture(self, raw_shot_name: str) -> str:
         shot_id = _slugify(raw_shot_name)
@@ -237,6 +271,11 @@ def create_app(cfg: StudioConfig) -> Flask:
     @app.post("/api/select-device")
     def select_device():
         studio.select_device(request.json["key"])
+        return jsonify({"ok": True})
+
+    @app.post("/api/restart-device")
+    def restart_device_route():
+        studio.restart_device(request.json["key"])
         return jsonify({"ok": True})
 
     @app.post("/api/capture")
