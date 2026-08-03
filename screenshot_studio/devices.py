@@ -26,26 +26,40 @@ FRAME_MAP: dict[str, dict[str, str]] = {
         "offset_key": "iPad Air (2019) 2",
         "frame_file": "Apple iPad Air (2019) 2 Silver.png",
     },
-    # Only phone-class real hardware AVD frames exist in frameit-frames; there is no
-    # modern Pixel Tablet frame, so android tablets fall back to the procedural frame
-    # in compose.py unless a match is added here.
+    # Uses the Galaxy S21 (centered punch-hole camera) rather than the Pixel 5 (its
+    # frame's camera cutout sits off-center) to better match modern Android hardware.
     "Medium_Phone": {
-        "offset_key": "Google Pixel 5",
-        "frame_file": "Google Pixel 5 Just Black.png",
+        "offset_key": "Samsung Galaxy S21 5G",
+        "frame_file": "Samsung Galaxy S21 5G Black.png",
     },
     "Pixel_8": {
-        "offset_key": "Google Pixel 5",
-        "frame_file": "Google Pixel 5 Just Black.png",
+        "offset_key": "Samsung Galaxy S21 5G",
+        "frame_file": "Samsung Galaxy S21 5G Black.png",
+    },
+    # frameit-frames has no modern Android tablet bezel (no Pixel Tablet, nothing
+    # current-gen) — this 2014 Nexus 9 is its only tablet entry. Used by explicit
+    # choice over the procedural fallback despite the aspect ratio/bezel mismatch.
+    "Pixel_Tablet": {
+        "offset_key": "Nexus 9",
+        "frame_file": "Nexus 9.png",
     },
 }
 
 # Final export canvas size per device class, matching current App Store Connect /
 # Google Play Console accepted screenshot buckets.
+#
+# iOS: App Store Connect only accepts specific pixel buckets per device class —
+# (1242x2688 or 1284x2778) for phone, (2064x2752 or 2048x2732) for tablet.
+#
+# Android: Play Console requires 16:9 or 9:16 aspect ratio, sides between 320-3840px
+# (phone / 7" tablet) or 1080-7680px (10" tablet) — 1080x1920 and 1440x2560 are both
+# exact 9:16 and fall inside the intersection of all three ranges, so the same pair
+# of assets is valid for phone, 7" tablet, and 10" tablet listings alike.
 _STORE_RESOLUTIONS = {
-    ("ios", "phone"): (1290, 2796),  # iPhone 6.5"/6.7" bucket
-    ("ios", "tablet"): (2064, 2752),  # iPad 12.9"/13" bucket
+    ("ios", "phone"): (1284, 2778),
+    ("ios", "tablet"): (2064, 2752),
     ("android", "phone"): (1080, 1920),
-    ("android", "tablet"): (1600, 2560),
+    ("android", "tablet"): (1440, 2560),
 }
 
 _TABLET_HINTS = ("ipad", "tablet", "pixel tablet", "nexus 9")

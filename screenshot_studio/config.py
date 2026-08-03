@@ -33,6 +33,10 @@ class StyleConfig:
     title_color: str = "#1A1A1A"
     font_bold: str = "Poppins-Bold.ttf"
     font_regular: str = "Poppins-Regular.ttf"
+    # "solid" always uses background_color. "auto" samples each raw screenshot's own
+    # edge color per shot and lightens it toward white if needed for text contrast,
+    # falling back to background_color only if that sampling fails.
+    background_mode: str = "solid"
 
 
 @dataclass
@@ -106,6 +110,7 @@ def load_config(path: str | Path) -> StudioConfig:
         title_color=style_raw.get("title_color", "#1A1A1A"),
         font_bold=style_raw.get("font_bold", "Poppins-Bold.ttf"),
         font_regular=style_raw.get("font_regular", "Poppins-Regular.ttf"),
+        background_mode=style_raw.get("background_mode", "solid"),
     )
 
     languages = raw.get("languages") or ["en"]

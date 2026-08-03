@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from pathlib import Path
 
 from fontTools.ttLib import TTFont
@@ -97,6 +98,39 @@ def _procedural_frame(raw: Image.Image) -> Image.Image:
     return canvas
 
 
+def _background_color_for(
+    raw: Image.Image, style_background_hex: str, mode: str
+) -> tuple[int, int, int]:
+    """"solid" always uses the configured color. "auto" samples the raw screenshot's
+    own edge pixels (the app's chrome, not whatever photo/content sits mid-screen) and
+    lightens the result toward white if it's too dark for the (dark) title text."""
+    fallback = _hex_to_rgb(style_background_hex)
+    if mode != "auto":
+        return fallback
+
+    img = raw.convert("RGB")
+    w, h = img.size
+    strip = max(2, round(min(w, h) * 0.02))
+    edge_pixels = (
+        list(img.crop((0, 0, w, strip)).getdata())
+        + list(img.crop((0, h - strip, w, h)).getdata())
+        + list(img.crop((0, 0, strip, h)).getdata())
+        + list(img.crop((w - strip, 0, w, h)).getdata())
+    )
+    if not edge_pixels:
+        return fallback
+
+    color, _ = Counter(edge_pixels).most_common(1)[0]
+    r, g, b = color
+    luminance = 0.299 * r + 0.587 * g + 0.114 * b
+    if luminance < 180:
+        blend = 0.6
+        r = round(r + (255 - r) * blend)
+        g = round(g + (255 - g) * blend)
+        b = round(b + (255 - b) * blend)
+    return (r, g, b)
+
+
 def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
     words = text.split()
     lines: list[str] = []
@@ -124,7 +158,8 @@ def render_shot(
     raw_path: Path,
 ) -> Path:
     canvas_w, canvas_h = devices_mod.store_resolution(device)
-    bg_color = _hex_to_rgb(cfg.style.background_color)
+    raw = Image.open(raw_path)
+    bg_color = _background_color_for(raw, cfg.style.background_color, cfg.style.background_mode)
     title_color = _hex_to_rgb(cfg.style.title_color)
 
     canvas = Image.new("RGB", (canvas_w, canvas_h), bg_color)
@@ -175,7 +210,6 @@ def render_shot(
 
     title_area_h = max(title_area_h, total_text_h)
 
-    raw = Image.open(raw_path)
     framed = _framed_device_image(raw, device)
 
     device_area_w = canvas_w - margin * 2
