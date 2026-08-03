@@ -55,6 +55,8 @@ shotstudio store-listing --config configs/chronal.yaml
 All fields are optional; omitting them keeps the original solid-background, upright,
 undecorated look.
 
+![Style preview: gradient and svg decoration modes, auto-derived per shot from each screenshot's own content](style_preview.png)
+
 ```yaml
 style:
   background_color: "#FAFAF8"
