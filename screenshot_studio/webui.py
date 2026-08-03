@@ -39,6 +39,7 @@ class Studio:
         self.lock = threading.Lock()
         self.sessions = {key: DeviceSession(key, device) for key, device in cfg.devices.items()}
         self.active_key: str | None = None
+        self.current_lang = cfg.default_language
         self.busy = False
         self.status = "Select a device to begin."
         self.error: str | None = None
@@ -47,10 +48,17 @@ class Studio:
         with self.lock:
             self.status = text
 
+    def set_language(self, lang: str) -> None:
+        if lang not in self.cfg.languages:
+            raise ValueError(f"Unknown language '{lang}'; configured: {self.cfg.languages}")
+        with self.lock:
+            self.current_lang = lang
+
     def snapshot(self) -> dict:
         with self.lock:
+            lang = self.current_lang
             shot_ids = shots.discover_shot_ids(self.cfg)
-            titles = titles_store.load_titles(self.cfg)
+            titles = titles_store.load_titles(self.cfg, lang)
             rows = []
             for sid in shot_ids:
                 meta = titles.get(sid, {})
@@ -68,6 +76,8 @@ class Studio:
                 )
             return {
                 "app_name": self.cfg.app.name,
+                "languages": self.cfg.languages,
+                "current_lang": lang,
                 "status": self.status,
                 "busy": self.busy,
                 "active_device": self.active_key,
@@ -197,15 +207,16 @@ class Studio:
             android.screenshot(session.identifier, dest)
         self._set_status(f"Captured '{shot_id}' for {session.key}")
 
-        if shot_id not in titles_store.load_titles(self.cfg):
-            threading.Thread(target=self._suggest_title_worker, args=(shot_id, dest), daemon=True).start()
+        lang = self.current_lang
+        if shot_id not in titles_store.load_titles(self.cfg, lang):
+            threading.Thread(target=self._suggest_title_worker, args=(lang, shot_id, dest), daemon=True).start()
         return shot_id
 
-    def _suggest_title_worker(self, shot_id: str, image_path: Path) -> None:
+    def _suggest_title_worker(self, lang: str, shot_id: str, image_path: Path) -> None:
         try:
             self._set_status(f"Asking claude for a title for '{shot_id}'...")
             suggestion = ai_titles.suggest_title(image_path, self.cfg.app.name)
-            titles_store.save_title(self.cfg, shot_id, suggestion["title"], suggestion.get("subtitle", ""))
+            titles_store.save_title(self.cfg, lang, shot_id, suggestion["title"], suggestion.get("subtitle", ""))
             self._set_status(f"Title for '{shot_id}': {suggestion['title']!r}")
         except ai_titles.TitleSuggestionError as exc:
             self._set_status(f"Title suggestion failed for '{shot_id}': {exc}")
@@ -215,14 +226,15 @@ class Studio:
             if self.busy:
                 return
             self.busy = True
-            self.status = "Composing store screenshots..."
-        threading.Thread(target=self._compose_worker, daemon=True).start()
+            lang = self.current_lang
+            self.status = f"Composing store screenshots ({lang})..."
+        threading.Thread(target=self._compose_worker, args=(lang,), daemon=True).start()
 
-    def _compose_worker(self) -> None:
+    def _compose_worker(self, lang: str) -> None:
         try:
-            outputs = compose_all(self.cfg)
+            outputs = compose_all(self.cfg, lang)
             with self.lock:
-                self.status = f"Composed {len(outputs)} image(s) into {self.cfg.store_dir}"
+                self.status = f"Composed {len(outputs)} image(s) into {self.cfg.store_dir(lang)}"
                 self.error = None
         except Exception as exc:  # noqa: BLE001
             with self.lock:
@@ -233,12 +245,13 @@ class Studio:
 
     def delete_shot(self, shot_id: str) -> None:
         with self.lock:
+            lang = self.current_lang
             for key in self.sessions:
-                for base_dir in (self.cfg.raw_dir, self.cfg.store_dir):
+                for base_dir in (self.cfg.raw_dir, self.cfg.store_dir(lang)):
                     path = base_dir / key / f"{shot_id}.png"
                     if path.exists():
                         path.unlink()
-            titles_store.delete_title(self.cfg, shot_id)
+            titles_store.delete_title(self.cfg, lang, shot_id)
             self.status = f"Deleted '{shot_id}'"
 
     def shutdown(self) -> None:
@@ -277,6 +290,14 @@ def create_app(cfg: StudioConfig) -> Flask:
     def restart_device_route():
         studio.restart_device(request.json["key"])
         return jsonify({"ok": True})
+
+    @app.post("/api/select-language")
+    def select_language():
+        try:
+            studio.set_language(request.json["lang"])
+            return jsonify({"ok": True})
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
 
     @app.post("/api/capture")
     def capture():

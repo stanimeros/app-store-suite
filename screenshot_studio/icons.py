@@ -23,7 +23,7 @@ def generate_play_store_icon(cfg: StudioConfig) -> Path:
             (PLAY_STORE_ICON_SIZE, PLAY_STORE_ICON_SIZE), Image.LANCZOS
         )
 
-    dest = cfg.output_dir / "play_store_icon.png"
+    dest = cfg.icon_path
     dest.parent.mkdir(parents=True, exist_ok=True)
     resized.save(dest)
     return dest

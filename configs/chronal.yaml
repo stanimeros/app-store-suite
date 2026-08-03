@@ -3,6 +3,13 @@ app:
   flutter_dir: /Users/stanimeros/Developer/chronal
   icon_source: assets/icon/icon.png # must be >=1024x1024
 
+# First language is the default (used when no --lang is given, and what the web UI
+# starts on). Raw screenshots are shared across languages; titles/subtitles, composed
+# store images, and the feature graphic are per-language under output/chronal/<lang>/.
+languages:
+  - el
+  - en
+
 devices:
   ios_phone:
     simulator: "iPhone 17 Pro"
@@ -16,7 +23,7 @@ devices:
 # No fixed shot list: capture whatever screens you want, naming each one as you
 # go (e.g. "home", "itinerary", "map"). Titles are suggested automatically by
 # the `claude` CLI from the actual screenshot content and stored in
-# output/titles.json, shared across all devices for the same shot id.
+# output/chronal/<lang>/titles.json, shared across all devices for the same shot id.
 
 style:
   background_color: "#FAFAF8"

@@ -10,7 +10,7 @@ from .config import StudioConfig
 WIDTH, HEIGHT = 1024, 500
 
 
-def generate_feature_graphic(cfg: StudioConfig, headline: str, subtitle: str = "") -> Path:
+def generate_feature_graphic(cfg: StudioConfig, lang: str, headline: str, subtitle: str = "") -> Path:
     bg_color = _hex_to_rgb(cfg.style.background_color)
     title_color = _hex_to_rgb(cfg.style.title_color)
 
@@ -57,7 +57,7 @@ def generate_feature_graphic(cfg: StudioConfig, headline: str, subtitle: str = "
         for i, line in enumerate(sub_lines):
             draw.text((text_left, sub_top + i * sub_line_height), line, font=sub_font, fill=title_color)
 
-    dest = cfg.output_dir / "feature_graphic.png"
+    dest = cfg.feature_graphic_path(lang)
     dest.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(dest)
     return dest

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 
+from . import ai_titles
 from . import devices as devices_mod
+from . import titles_store
 from .capture import android
 from .capture.orchestrator import run_capture
 from .compose import compose_all
@@ -62,8 +65,10 @@ def cmd_ui(args: argparse.Namespace) -> None:
 
 def cmd_compose(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
-    outputs = compose_all(cfg, only_device=args.device)
-    print(f"\n{len(outputs)} store screenshot(s) written under {cfg.store_dir}")
+    langs = [args.lang] if args.lang else cfg.languages
+    for lang in langs:
+        outputs = compose_all(cfg, lang, only_device=args.device)
+        print(f"\n[{lang}] {len(outputs)} store screenshot(s) written under {cfg.store_dir(lang)}")
 
 
 def cmd_store_icon(args: argparse.Namespace) -> None:
@@ -74,9 +79,26 @@ def cmd_store_icon(args: argparse.Namespace) -> None:
 
 def cmd_feature_graphic(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
+    lang = args.lang or cfg.default_language
     headline = args.headline or f"{cfg.app.name}"
-    dest = generate_feature_graphic(cfg, headline, args.subtitle or "")
+    dest = generate_feature_graphic(cfg, lang, headline, args.subtitle or "")
     print(f"Feature graphic written to {dest}")
+
+
+def cmd_translate_titles(args: argparse.Namespace) -> None:
+    cfg = load_config(args.config)
+    source_titles = titles_store.load_titles(cfg, args.from_lang)
+    if not source_titles:
+        print(f"No titles found for '{args.from_lang}' at {cfg.titles_path(args.from_lang)}")
+        return
+
+    print(f"Translating {len(source_titles)} shot title(s) from {args.from_lang} -> {args.to_lang}...")
+    translated = ai_titles.translate_titles(source_titles, cfg.app.name, args.from_lang, args.to_lang)
+
+    dest = cfg.titles_path(args.to_lang)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(translated, indent=2, ensure_ascii=False))
+    print(f"Wrote {len(translated)} translated title(s) to {dest}")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -100,6 +122,7 @@ def main(argv: list[str] | None = None) -> None:
     p_compose = sub.add_parser("compose", help="Frame + brand raw screenshots into store-ready images")
     p_compose.add_argument("--config", required=True)
     p_compose.add_argument("--device", help="Only compose this device key from the config")
+    p_compose.add_argument("--lang", help="Only compose this language (defaults to all configured languages)")
     p_compose.set_defaults(func=cmd_compose)
 
     p_icon = sub.add_parser("store-icon", help="Generate the 512x512 Play Store app icon")
@@ -108,9 +131,18 @@ def main(argv: list[str] | None = None) -> None:
 
     p_fg = sub.add_parser("feature-graphic", help="Generate the 1024x500 Play Store feature graphic")
     p_fg.add_argument("--config", required=True)
+    p_fg.add_argument("--lang", help="Language folder to write into (defaults to the first configured language)")
     p_fg.add_argument("--headline", help="Override the headline text (defaults to app name)")
     p_fg.add_argument("--subtitle", help="Optional subtitle text shown below the headline")
     p_fg.set_defaults(func=cmd_feature_graphic)
+
+    p_translate = sub.add_parser(
+        "translate-titles", help="Translate one language's shot titles/subtitles into another via the claude CLI"
+    )
+    p_translate.add_argument("--config", required=True)
+    p_translate.add_argument("--from", dest="from_lang", required=True, help="Source language code, e.g. en")
+    p_translate.add_argument("--to", dest="to_lang", required=True, help="Target language code, e.g. el")
+    p_translate.set_defaults(func=cmd_translate_titles)
 
     args = parser.parse_args(argv)
     args.func(args)

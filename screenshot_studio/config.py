@@ -1,9 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _slugify(value: str) -> str:
+    return _SLUG_RE.sub("_", value.strip().lower()).strip("_")
 
 
 @dataclass
@@ -34,22 +41,42 @@ class StudioConfig:
     devices: dict[str, DeviceConfig]
     style: StyleConfig
     config_path: Path
+    languages: list[str] = field(default_factory=lambda: ["en"])
+
+    @property
+    def default_language(self) -> str:
+        return self.languages[0]
 
     @property
     def output_dir(self) -> Path:
-        return self.config_path.parent.parent / "output"
+        """Per-app output root: output/<app-slug>/"""
+        return self.config_path.parent.parent / "output" / _slugify(self.app.name)
 
     @property
     def raw_dir(self) -> Path:
+        """Raw device captures — shared across languages (the UI text they show is
+        whatever locale the device happened to be running in during capture)."""
         return self.output_dir / "raw"
 
     @property
-    def store_dir(self) -> Path:
-        return self.output_dir / "store"
+    def icon_path(self) -> Path:
+        """Play Store app icon — no text rendered on it, so it isn't per-language."""
+        return self.output_dir / "play_store_icon.png"
 
-    @property
-    def titles_path(self) -> Path:
-        return self.output_dir / "titles.json"
+    def lang_dir(self, lang: str) -> Path:
+        return self.output_dir / lang
+
+    def store_dir(self, lang: str) -> Path:
+        return self.lang_dir(lang) / "store"
+
+    def titles_path(self, lang: str) -> Path:
+        return self.lang_dir(lang) / "titles.json"
+
+    def feature_graphic_path(self, lang: str) -> Path:
+        return self.lang_dir(lang) / "feature_graphic.png"
+
+    def store_listing_path(self, lang: str) -> Path:
+        return self.lang_dir(lang) / "store_listing.md"
 
 
 def load_config(path: str | Path) -> StudioConfig:
@@ -81,4 +108,8 @@ def load_config(path: str | Path) -> StudioConfig:
         font_regular=style_raw.get("font_regular", "Poppins-Regular.ttf"),
     )
 
-    return StudioConfig(app=app, devices=devices, style=style, config_path=path)
+    languages = raw.get("languages") or ["en"]
+
+    return StudioConfig(
+        app=app, devices=devices, style=style, config_path=path, languages=languages
+    )

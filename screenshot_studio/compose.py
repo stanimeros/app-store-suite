@@ -93,6 +93,7 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFon
 
 def render_shot(
     cfg: StudioConfig,
+    lang: str,
     device_key: str,
     device: DeviceConfig,
     shot_id: str,
@@ -166,15 +167,15 @@ def render_shot(
     paste_y = canvas_h - margin - framed_resized.height
     canvas.paste(framed_resized, (paste_x, paste_y), framed_resized)
 
-    dest = cfg.store_dir / device_key / f"{shot_id}.png"
+    dest = cfg.store_dir(lang) / device_key / f"{shot_id}.png"
     dest.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(dest)
     return dest
 
 
-def compose_all(cfg: StudioConfig, only_device: str | None = None) -> list[Path]:
+def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) -> list[Path]:
     devices = {only_device: cfg.devices[only_device]} if only_device else cfg.devices
-    titles = titles_store.load_titles(cfg)
+    titles = titles_store.load_titles(cfg, lang)
     outputs: list[Path] = []
     for device_key, device in devices.items():
         device_raw_dir = cfg.raw_dir / device_key
@@ -185,7 +186,7 @@ def compose_all(cfg: StudioConfig, only_device: str | None = None) -> list[Path]
             meta = titles.get(shot_id, {})
             title = meta.get("title") or shot_id.replace("_", " ").title()
             subtitle = meta.get("subtitle", "")
-            dest = render_shot(cfg, device_key, device, shot_id, title, subtitle, raw_path)
+            dest = render_shot(cfg, lang, device_key, device, shot_id, title, subtitle, raw_path)
             outputs.append(dest)
             print(f"  composed {dest}")
     return outputs

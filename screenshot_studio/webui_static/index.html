@@ -233,12 +233,29 @@
   .btn:disabled { opacity: 0.4; cursor: default; }
   .btn, .capture-btn, .row-capture-btn, .remove-btn { display: inline-flex; align-items: center; gap: 6px; }
   .icon { width: 14px; height: 14px; flex-shrink: 0; }
+  .lang-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .lang-row label { font-size: 12px; color: var(--muted); font-weight: 600; }
+  .lang-row select {
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .lang-row select:disabled { opacity: 0.5; cursor: default; }
 </style>
 </head>
 <body>
   <header>
     <h1 id="app-title">Screenshot Studio</h1>
     <p class="tagline">Pick a device, capture a screen, and Claude writes the title for you.</p>
+    <div class="lang-row">
+      <label for="lang-select">Language</label>
+      <select id="lang-select"></select>
+    </div>
     <div class="devices" id="devices"></div>
   </header>
   <div class="status-row">
@@ -299,6 +316,16 @@ async function fetchState() {
 function buildDevices(state) {
   document.title = `Screenshot Studio — ${state.app_name}`;
   document.getElementById('app-title').textContent = `Screenshot Studio — ${state.app_name}`;
+
+  const langSelect = document.getElementById('lang-select');
+  for (const lang of state.languages) {
+    const opt = document.createElement('option');
+    opt.value = lang;
+    opt.textContent = lang;
+    langSelect.appendChild(opt);
+  }
+  langSelect.value = state.current_lang;
+  langSelect.onchange = () => selectLanguage(langSelect.value);
 
   const devicesEl = document.getElementById('devices');
   const head = document.getElementById('matrix-head');
@@ -385,6 +412,9 @@ function ensureRow(shotId) {
 
 function patch(state) {
   currentState = state;
+  const langSelect = document.getElementById('lang-select');
+  if (langSelect.value !== state.current_lang) langSelect.value = state.current_lang;
+  langSelect.disabled = state.busy;
   const currentIds = new Set(state.shots.map((s) => s.id));
   for (const [id, row] of rowEls) {
     if (!currentIds.has(id)) {
@@ -491,6 +521,15 @@ async function restartDevice(key) {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({key}),
+  });
+  fetchState();
+}
+
+async function selectLanguage(lang) {
+  await fetch('/api/select-language', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({lang}),
   });
   fetchState();
 }
