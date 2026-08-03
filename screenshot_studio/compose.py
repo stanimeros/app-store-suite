@@ -1,0 +1,162 @@
+from __future__ import annotations
+
+import re
+import textwrap
+from pathlib import Path
+
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+from . import devices as devices_mod
+from .config import DeviceConfig, ShotConfig, StudioConfig
+from .frames import fetch as frames_fetch
+
+_FONTS_DIR = Path(__file__).parent / "fonts"
+_MARGIN_RATIO = 0.08  # side margin as a fraction of canvas width
+_TITLE_AREA_RATIO = 0.22  # fraction of canvas height reserved for title text
+
+
+def _font(name: str, size: int) -> ImageFont.FreeTypeFont:
+    return ImageFont.truetype(str(_FONTS_DIR / name), size)
+
+
+def _hex_to_rgb(value: str) -> tuple[int, int, int]:
+    value = value.lstrip("#")
+    return tuple(int(value[i : i + 2], 16) for i in (0, 2, 4))
+
+
+def _parse_offset(offset: str) -> tuple[int, int]:
+    match = re.match(r"\+(-?\d+)\+(-?\d+)", offset)
+    if not match:
+        raise ValueError(f"Unrecognized offset format: {offset!r}")
+    return int(match.group(1)), int(match.group(2))
+
+
+def _framed_device_image(raw: Image.Image, device: DeviceConfig) -> Image.Image:
+    spec = devices_mod.resolve_frame(device)
+    if spec.frame_file and spec.offset_key:
+        offsets = frames_fetch.load_offsets()
+        entry = offsets.get(spec.offset_key)
+        if entry:
+            frame_path = frames_fetch.get_frame_path(spec.frame_file)
+            frame = Image.open(frame_path).convert("RGBA")
+            x, y = _parse_offset(entry["offset"])
+            target_w = entry["width"]
+            scale = target_w / raw.width
+            resized = raw.resize((target_w, round(raw.height * scale)), Image.LANCZOS)
+            canvas = Image.new("RGBA", frame.size, (0, 0, 0, 0))
+            canvas.paste(resized, (x, y))
+            canvas.alpha_composite(frame)
+            return canvas
+
+    return _procedural_frame(raw)
+
+
+def _procedural_frame(raw: Image.Image) -> Image.Image:
+    """Fallback when no matching frameit-frames bezel exists: rounded corners + soft shadow."""
+    pad = round(raw.width * 0.04)
+    radius = round(raw.width * 0.08)
+    canvas = Image.new("RGBA", (raw.width + pad * 2, raw.height + pad * 2), (0, 0, 0, 0))
+
+    mask = Image.new("L", raw.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, raw.width, raw.height], radius=radius, fill=255)
+    rounded = Image.new("RGBA", raw.size, (0, 0, 0, 0))
+    rounded.paste(raw.convert("RGBA"), (0, 0), mask)
+
+    shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).rounded_rectangle(
+        [pad, pad + round(pad * 0.4), pad + raw.width, pad + round(pad * 0.4) + raw.height],
+        radius=radius,
+        fill=(0, 0, 0, 70),
+    )
+    shadow = shadow.filter(ImageFilter.GaussianBlur(pad * 0.3))
+
+    canvas.alpha_composite(shadow)
+    canvas.alpha_composite(rounded, (pad, pad))
+    return canvas
+
+
+def _wrap_title(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
+    words = text.split()
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if draw.textlength(candidate, font=font) <= max_width:
+            current = candidate
+        else:
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines or [text]
+
+
+def render_shot(cfg: StudioConfig, device_key: str, device: DeviceConfig, shot: ShotConfig, raw_path: Path) -> Path:
+    canvas_w, canvas_h = devices_mod.store_resolution(device)
+    bg_color = _hex_to_rgb(cfg.style.background_color)
+    title_color = _hex_to_rgb(cfg.style.title_color)
+
+    canvas = Image.new("RGB", (canvas_w, canvas_h), bg_color)
+    draw = ImageDraw.Draw(canvas)
+
+    margin = round(canvas_w * _MARGIN_RATIO)
+    title_area_h = round(canvas_h * _TITLE_AREA_RATIO)
+
+    title_font = _font(cfg.style.font_bold, round(canvas_w * 0.062))
+    lines = _wrap_title(draw, shot.title, title_font, canvas_w - margin * 2)
+    line_height = title_font.size + round(title_font.size * 0.3)
+    text_block_h = line_height * len(lines)
+    text_top = round((title_area_h - text_block_h) / 2)
+    for i, line in enumerate(lines):
+        w = draw.textlength(line, font=title_font)
+        draw.text(
+            ((canvas_w - w) / 2, text_top + i * line_height),
+            line,
+            font=title_font,
+            fill=title_color,
+        )
+
+    if shot.subtitle:
+        sub_font = _font(cfg.style.font_regular, round(canvas_w * 0.032))
+        w = draw.textlength(shot.subtitle, font=sub_font)
+        draw.text(
+            ((canvas_w - w) / 2, text_top + text_block_h + round(sub_font.size * 0.5)),
+            shot.subtitle,
+            font=sub_font,
+            fill=title_color,
+        )
+
+    raw = Image.open(raw_path)
+    framed = _framed_device_image(raw, device)
+
+    device_area_w = canvas_w - margin * 2
+    device_area_h = canvas_h - title_area_h - margin
+    scale = min(device_area_w / framed.width, device_area_h / framed.height)
+    framed_resized = framed.resize(
+        (round(framed.width * scale), round(framed.height * scale)), Image.LANCZOS
+    )
+
+    paste_x = round((canvas_w - framed_resized.width) / 2)
+    paste_y = canvas_h - margin - framed_resized.height
+    canvas.paste(framed_resized, (paste_x, paste_y), framed_resized)
+
+    dest = cfg.store_dir / device_key / f"{shot.id}.png"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(dest)
+    return dest
+
+
+def compose_all(cfg: StudioConfig, only_device: str | None = None) -> list[Path]:
+    devices = {only_device: cfg.devices[only_device]} if only_device else cfg.devices
+    outputs: list[Path] = []
+    for device_key, device in devices.items():
+        for shot in cfg.shots:
+            raw_path = cfg.raw_dir / device_key / f"{shot.id}.png"
+            if not raw_path.exists():
+                print(f"  skip {device_key}/{shot.id}: no raw screenshot at {raw_path}")
+                continue
+            dest = render_shot(cfg, device_key, device, shot, raw_path)
+            outputs.append(dest)
+            print(f"  composed {dest}")
+    return outputs

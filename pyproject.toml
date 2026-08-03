@@ -1,0 +1,22 @@
+[project]
+name = "screenshot-studio"
+version = "0.1.0"
+description = "Store-asset automation: framed screenshots, app icons, and Play Store feature graphics for Flutter apps"
+requires-python = ">=3.10"
+dependencies = [
+    "Pillow>=10.0",
+    "PyYAML>=6.0",
+]
+
+[project.scripts]
+shotstudio = "screenshot_studio.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["screenshot_studio*"]
+
+[tool.setuptools.package-data]
+screenshot_studio = ["fonts/*.ttf", "fonts/OFL.txt"]
