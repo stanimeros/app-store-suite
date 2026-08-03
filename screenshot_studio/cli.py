@@ -75,7 +75,7 @@ def cmd_store_icon(args: argparse.Namespace) -> None:
 def cmd_feature_graphic(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
     headline = args.headline or f"{cfg.app.name}"
-    dest = generate_feature_graphic(cfg, headline)
+    dest = generate_feature_graphic(cfg, headline, args.subtitle or "")
     print(f"Feature graphic written to {dest}")
 
 
@@ -109,6 +109,7 @@ def main(argv: list[str] | None = None) -> None:
     p_fg = sub.add_parser("feature-graphic", help="Generate the 1024x500 Play Store feature graphic")
     p_fg.add_argument("--config", required=True)
     p_fg.add_argument("--headline", help="Override the headline text (defaults to app name)")
+    p_fg.add_argument("--subtitle", help="Optional subtitle text shown below the headline")
     p_fg.set_defaults(func=cmd_feature_graphic)
 
     args = parser.parse_args(argv)

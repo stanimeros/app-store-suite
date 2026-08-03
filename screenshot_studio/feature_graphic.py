@@ -10,7 +10,7 @@ from .config import StudioConfig
 WIDTH, HEIGHT = 1024, 500
 
 
-def generate_feature_graphic(cfg: StudioConfig, headline: str) -> Path:
+def generate_feature_graphic(cfg: StudioConfig, headline: str, subtitle: str = "") -> Path:
     bg_color = _hex_to_rgb(cfg.style.background_color)
     title_color = _hex_to_rgb(cfg.style.title_color)
 
@@ -30,14 +30,32 @@ def generate_feature_graphic(cfg: StudioConfig, headline: str) -> Path:
     else:
         text_left = margin
 
-    font = _font(cfg.style.font_bold, 64)
     max_text_width = WIDTH - text_left - margin
+
+    font = _font(cfg.style.font_bold, 64)
     lines = _wrap_text(draw, headline, font, max_text_width)
     line_height = font.size + round(font.size * 0.25)
     block_h = line_height * len(lines)
-    top = (HEIGHT - block_h) // 2
+
+    sub_lines: list[str] = []
+    sub_font = None
+    sub_line_height = 0
+    sub_gap = 0
+    if subtitle:
+        sub_font = _font(cfg.style.font_regular, 28)
+        sub_lines = _wrap_text(draw, subtitle, sub_font, max_text_width)
+        sub_line_height = sub_font.size + round(sub_font.size * 0.3)
+        sub_gap = round(sub_font.size * 0.6)
+
+    total_h = block_h + (sub_gap + sub_line_height * len(sub_lines) if sub_lines else 0)
+    top = (HEIGHT - total_h) // 2
     for i, line in enumerate(lines):
         draw.text((text_left, top + i * line_height), line, font=font, fill=title_color)
+
+    if sub_lines:
+        sub_top = top + block_h + sub_gap
+        for i, line in enumerate(sub_lines):
+            draw.text((text_left, sub_top + i * sub_line_height), line, font=sub_font, fill=title_color)
 
     dest = cfg.output_dir / "feature_graphic.png"
     dest.parent.mkdir(parents=True, exist_ok=True)
