@@ -110,6 +110,9 @@ def _parse_response(raw: str) -> dict:
     return data
 
 
+_MAX_ATTEMPTS = 4
+
+
 def generate_store_listing(cfg: StudioConfig, lang: str, timeout: float = 180) -> Path:
     shots = titles_store.load_titles(cfg, lang)
     if not shots:
@@ -123,17 +126,39 @@ def generate_store_listing(cfg: StudioConfig, lang: str, timeout: float = 180) -
         language=_language_name(lang),
         shots_json=json.dumps(shots, ensure_ascii=False, indent=2),
     )
-    data = _parse_response(run_claude_text(prompt, timeout))
 
-    # Character counts are computed here in Python, never trusted from the model.
-    fields = {
-        key: {"text": data[key], "count": len(data[key]), "limit": limit}
-        for key, limit in _FIELDS
-    }
-    over_limit = [key for key, f in fields.items() if f["count"] > f["limit"]]
-    if over_limit:
+    fields: dict | None = None
+    over_limit: list[str] = []
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        data = _parse_response(run_claude_text(prompt, timeout))
+
+        # Character counts are computed here in Python, never trusted from the model —
+        # some languages (e.g. Greek) run longer per word than the model expects, so it
+        # reliably overshoots tight limits like the 30-char iOS subtitle.
+        fields = {
+            key: {"text": data[key], "count": len(data[key]), "limit": limit}
+            for key, limit in _FIELDS
+        }
+        over_limit = [key for key, f in fields.items() if f["count"] > f["limit"]]
+        if not over_limit:
+            break
+
+        overage = "; ".join(
+            f"{key}: {fields[key]['count']} chars, limit is {fields[key]['limit']} — "
+            f"shorten by at least {fields[key]['count'] - fields[key]['limit']}"
+            for key in over_limit
+        )
+        prompt = (
+            f"Your previous JSON response exceeded the character limit on these fields: "
+            f"{overage}. Rewrite ONLY those field(s), keeping the rest identical, and "
+            f"respond again with the full JSON object in the same shape as before, still "
+            f"ONLY compact JSON on a single line, no markdown, no commentary. Previous "
+            f"response was: {json.dumps(data, ensure_ascii=False)}"
+        )
+    else:
         raise TitleSuggestionError(
-            "Response exceeded character limits for: "
+            f"Could not get response under character limits after {_MAX_ATTEMPTS} attempts, "
+            "still over on: "
             + ", ".join(f"{key} ({fields[key]['count']}/{fields[key]['limit']})" for key in over_limit)
         )
 
