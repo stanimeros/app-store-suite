@@ -4,16 +4,27 @@ import json
 import subprocess
 from pathlib import Path
 
+LANGUAGE_NAMES = {
+    "en": "English",
+    "el": "Greek",
+}
+
+
+def _language_name(lang: str) -> str:
+    return LANGUAGE_NAMES.get(lang, lang)
+
+
 PROMPT_TEMPLATE = (
     "Look at the screenshot image at {image_path}. This is a screen from the Flutter "
-    "app '{app_name}'. Write App Store screenshot marketing copy for it: a short punchy "
-    "title (max 6 words) and a one-sentence subtitle (max 12 words) describing the "
-    "feature shown. This same copy will be reused across iOS and Android, phone and "
-    "tablet, so keep it platform-neutral and feature-focused — do not name specific "
-    "companies, brands, or providers visible on screen (e.g. Google, Apple, Facebook) "
-    "since sign-in options and other provider-specific features can differ between "
-    "platforms and builds. Respond with ONLY compact JSON on a single line: "
-    '{{"title": "...", "subtitle": "..."}} and nothing else — no markdown, no commentary.'
+    "app '{app_name}'. Write App Store screenshot marketing copy for it, in {language}: "
+    "a short punchy title (max 6 words) and a one-sentence subtitle (max 12 words) "
+    "describing the feature shown. This same copy will be reused across iOS and "
+    "Android, phone and tablet, so keep it platform-neutral and feature-focused — do "
+    "not name specific companies, brands, or providers visible on screen (e.g. Google, "
+    "Apple, Facebook) since sign-in options and other provider-specific features can "
+    "differ between platforms and builds. Respond with ONLY compact JSON on a single "
+    'line: {{"title": "...", "subtitle": "..."}} and nothing else — no markdown, no '
+    "commentary."
 )
 
 
@@ -52,8 +63,10 @@ def _run_claude(prompt: str, timeout: float) -> dict:
     return json.loads(text[start : end + 1])
 
 
-def suggest_title(image_path: Path, app_name: str, timeout: float = 120) -> dict:
-    prompt = PROMPT_TEMPLATE.format(image_path=image_path, app_name=app_name)
+def suggest_title(image_path: Path, app_name: str, lang: str = "en", timeout: float = 120) -> dict:
+    prompt = PROMPT_TEMPLATE.format(
+        image_path=image_path, app_name=app_name, language=_language_name(lang)
+    )
     data = _run_claude(prompt, timeout)
     return {"title": data.get("title", "").strip(), "subtitle": data.get("subtitle", "").strip()}
 
@@ -64,8 +77,8 @@ def translate_titles(
     """Translates a whole {shot_id: {title, subtitle}} mapping into another language."""
     prompt = TRANSLATE_PROMPT_TEMPLATE.format(
         app_name=app_name,
-        source_lang=source_lang,
-        target_lang=target_lang,
+        source_lang=_language_name(source_lang),
+        target_lang=_language_name(target_lang),
         titles_json=json.dumps(titles, ensure_ascii=False),
     )
     return _run_claude(prompt, timeout)

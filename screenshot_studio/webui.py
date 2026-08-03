@@ -215,7 +215,7 @@ class Studio:
     def _suggest_title_worker(self, lang: str, shot_id: str, image_path: Path) -> None:
         try:
             self._set_status(f"Asking claude for a title for '{shot_id}'...")
-            suggestion = ai_titles.suggest_title(image_path, self.cfg.app.name)
+            suggestion = ai_titles.suggest_title(image_path, self.cfg.app.name, lang=lang)
             titles_store.save_title(self.cfg, lang, shot_id, suggestion["title"], suggestion.get("subtitle", ""))
             self._set_status(f"Title for '{shot_id}': {suggestion['title']!r}")
         except ai_titles.TitleSuggestionError as exc:
