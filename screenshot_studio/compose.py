@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import colorsys
 import hashlib
 import io
+import math
 import random
 import re
 from collections import Counter
 from pathlib import Path
 
 from fontTools.ttLib import TTFont
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageStat
 
 from . import devices as devices_mod
 from . import titles_store
@@ -17,7 +19,12 @@ from .frames import fetch as frames_fetch
 
 _FONTS_DIR = Path(__file__).parent / "fonts"
 _MARGIN_RATIO = 0.08  # side margin as a fraction of canvas width
-_TITLE_AREA_RATIO = 0.22  # fraction of canvas height reserved for title text
+# Tilted devices need a much smaller side margin than upright ones: fitting the
+# rotated (larger) bounding box inside the same margin as an upright device forces it
+# noticeably smaller, and the diagonal corners taper away from the canvas edge anyway.
+_TILT_MARGIN_RATIO = 0.02
+_TOP_PADDING_RATIO = 0.065  # space above the title text, as a fraction of canvas height
+_TEXT_DEVICE_GAP_RATIO = 0.04  # space between the subtitle/title block and the device, ditto
 
 # Bundled fallback with broad script coverage (Greek, Cyrillic, etc.), used
 # whenever the configured brand font (e.g. Poppins, which is Latin-only) is
@@ -50,11 +57,56 @@ def _hex_to_rgb(value: str) -> tuple[int, int, int]:
     return tuple(int(value[i : i + 2], 16) for i in (0, 2, 4))
 
 
+def _luminance(rgb: tuple[int, int, int]) -> float:
+    r, g, b = rgb
+    return 0.299 * r + 0.587 * g + 0.114 * b
+
+
+def _readable_text_color(
+    bg_rgb: tuple[int, int, int], preferred_rgb: tuple[int, int, int]
+) -> tuple[int, int, int]:
+    """Keeps the configured title_color if it already contrasts against this
+    background; otherwise falls back to white-on-dark or near-black-on-light so text
+    stays legible regardless of background_mode/decoration."""
+    if abs(_luminance(bg_rgb) - _luminance(preferred_rgb)) > 110:
+        return preferred_rgb
+    return (255, 255, 255) if _luminance(bg_rgb) < 128 else (26, 26, 26)
+
+
 def _parse_offset(offset: str) -> tuple[int, int]:
     match = re.match(r"\+(-?\d+)\+(-?\d+)", offset)
     if not match:
         raise ValueError(f"Unrecognized offset format: {offset!r}")
     return int(match.group(1)), int(match.group(2))
+
+
+_silhouette_mask_cache: dict[str, Image.Image] = {}
+
+
+def _silhouette_mask(frame_path: Path, frame: Image.Image) -> Image.Image | None:
+    """Frame PNGs are drawn on a canvas larger than the phone body (room for drop
+    shadows etc.), fully transparent outside it. Compositing the raw screenshot onto
+    that canvas and laying the frame on top only hides the screenshot behind the
+    bezel's *opaque* pixels — it doesn't hide screenshot pixels that spill past the
+    bezel into that outer transparent padding (invisible when upright against a
+    matching flat background, but visible once the frame is rotated). This floods
+    that outer transparent region (from the canvas corner) to build a mask that clips
+    it away, while leaving the screen cutout itself untouched. Returns None if the
+    corner isn't transparent (unexpected asset shape) rather than risk clipping wrong."""
+    key = str(frame_path)
+    if key in _silhouette_mask_cache:
+        return _silhouette_mask_cache[key]
+
+    alpha = frame.split()[3]
+    if alpha.getpixel((0, 0)) != 0:
+        _silhouette_mask_cache[key] = None
+        return None
+
+    binary = alpha.point(lambda a: 255 if a == 0 else 0).convert("RGB")
+    ImageDraw.floodfill(binary, (0, 0), (128, 0, 0), thresh=10)
+    mask = binary.split()[0].point(lambda r: 0 if r == 128 else 255)
+    _silhouette_mask_cache[key] = mask
+    return mask
 
 
 def _framed_device_image(raw: Image.Image, device: DeviceConfig) -> Image.Image:
@@ -72,6 +124,11 @@ def _framed_device_image(raw: Image.Image, device: DeviceConfig) -> Image.Image:
             canvas = Image.new("RGBA", frame.size, (0, 0, 0, 0))
             canvas.paste(resized, (x, y))
             canvas.alpha_composite(frame)
+
+            mask = _silhouette_mask(frame_path, frame)
+            if mask is not None:
+                r, g, b, a = canvas.split()
+                canvas.putalpha(ImageChops.darker(a, mask))
             return canvas
 
     return _procedural_frame(raw)
@@ -134,6 +191,35 @@ def _background_color_for(
     return (r, g, b)
 
 
+def _accent_color_for(raw: Image.Image) -> tuple[int, int, int] | None:
+    """Picks a vivid, representative color from the screenshot's own content (not its
+    white/gray UI chrome) — e.g. the sky or a photo's dominant hue — for auto-deriving
+    gradient/decoration colors per shot. Returns None if nothing sufficiently colorful
+    is found (e.g. an all-white/gray screen), so callers can fall back sensibly."""
+    img = raw.convert("RGB").resize((64, 64))
+    buckets: Counter[tuple[int, int, int]] = Counter()
+    for r, g, b in img.getdata():
+        h, s, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+        if s < 0.28 or v < 0.25 or v > 0.97:
+            continue  # skip near-gray, near-black, near-white pixels (typical UI chrome)
+        buckets[(r // 24 * 24, g // 24 * 24, b // 24 * 24)] += 1
+    if not buckets:
+        return None
+    return buckets.most_common(1)[0][0]
+
+
+def _auto_gradient_color2(raw: Image.Image, base_rgb: tuple[int, int, int]) -> tuple[int, int, int]:
+    accent = _accent_color_for(raw)
+    if accent is None:
+        return tuple(min(255, c + 40) for c in base_rgb)
+    return _lerp_color(accent, (255, 255, 255), 0.55)  # pastel-ify for a soft gradient
+
+
+def _auto_decoration_color(raw: Image.Image, fallback_rgb: tuple[int, int, int]) -> tuple[int, int, int]:
+    accent = _accent_color_for(raw)
+    return accent if accent is not None else fallback_rgb
+
+
 def _seed_for(shot_id: str) -> int:
     """Deterministic per-shot seed so decoration/tilt choices stay stable across
     re-composing the same shot (and consistent across devices/languages for it)."""
@@ -154,8 +240,10 @@ def _gradient_background(w: int, h: int, color1: tuple[int, int, int], color2: t
 def _build_background(canvas_w: int, canvas_h: int, raw: Image.Image, style: StyleConfig) -> Image.Image:
     if style.background_mode == "gradient":
         color1 = _hex_to_rgb(style.background_color)
-        color2 = _hex_to_rgb(style.gradient_color2) if style.gradient_color2 else tuple(
-            min(255, c + 40) for c in color1
+        color2 = (
+            _hex_to_rgb(style.gradient_color2)
+            if style.gradient_color2
+            else _auto_gradient_color2(raw, color1)
         )
         return _gradient_background(canvas_w, canvas_h, color1, color2)
     bg_color = _background_color_for(raw, style.background_color, style.background_mode)
@@ -168,11 +256,15 @@ def _apply_overlay(canvas: Image.Image, overlay: Image.Image) -> None:
     canvas.paste(composited, (0, 0))
 
 
-def _draw_shape_decorations(canvas: Image.Image, style: StyleConfig, shot_id: str) -> None:
+def _draw_shape_decorations(canvas: Image.Image, style: StyleConfig, shot_id: str, raw: Image.Image) -> None:
     """Soft, low-opacity blurred circles behind the device — no extra dependency."""
     rng = random.Random(_seed_for(shot_id))
     w, h = canvas.size
-    color = _hex_to_rgb(style.decoration_color) if style.decoration_color else _hex_to_rgb(style.title_color)
+    color = (
+        _hex_to_rgb(style.decoration_color)
+        if style.decoration_color
+        else _auto_decoration_color(raw, _hex_to_rgb(style.title_color))
+    )
 
     overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
@@ -186,9 +278,11 @@ def _draw_shape_decorations(canvas: Image.Image, style: StyleConfig, shot_id: st
     _apply_overlay(canvas, overlay)
 
 
-def _draw_svg_decoration(canvas: Image.Image, style: StyleConfig, shot_id: str) -> None:
-    """Rasterizes one .svg from decoration_svg_dir (picked deterministically per shot)
-    behind the device, in the top-right corner at low opacity."""
+def _draw_svg_decoration(canvas: Image.Image, style: StyleConfig, shot_id: str, raw: Image.Image) -> None:
+    """Rasterizes one .svg from decoration_svg_dir (picked deterministically per shot),
+    tinted to decoration_color (or an accent color auto-sampled from this shot's own
+    screenshot if unset — the source file's own fill is always ignored) and placed in a
+    top corner behind the device, alternating corner and rotation per shot for variety."""
     if not style.decoration_svg_dir or not style.decoration_svg_dir.is_dir():
         return
     files = sorted(style.decoration_svg_dir.glob("*.svg"))
@@ -197,27 +291,39 @@ def _draw_svg_decoration(canvas: Image.Image, style: StyleConfig, shot_id: str) 
 
     import cairosvg  # deferred: only needed when decoration_svg is actually configured
 
-    svg_path = files[_seed_for(shot_id) % len(files)]
+    seed = _seed_for(shot_id)
+    svg_path = files[seed % len(files)]
     w, h = canvas.size
-    target_h = round(h * 0.4)
+    target_h = round(h * 0.46)
     png_bytes = cairosvg.svg2png(url=str(svg_path), output_height=target_h)
     decoration = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
 
-    alpha = decoration.split()[3].point(lambda a: round(a * 0.16))
-    decoration.putalpha(alpha)
+    color = (
+        _hex_to_rgb(style.decoration_color)
+        if style.decoration_color
+        else _auto_decoration_color(raw, _hex_to_rgb(style.title_color))
+    )
+    tinted = Image.new("RGBA", decoration.size, (*color, 0))
+    tinted.putalpha(decoration.split()[3].point(lambda a: round(a * 0.30)))
+    angle = 14 if seed % 2 == 0 else -12
+    tinted = tinted.rotate(angle, expand=True, resample=Image.BICUBIC)
 
+    margin = round(w * 0.04)
     overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    px = w - decoration.width - round(w * 0.03)
-    py = round(h * 0.03)
-    overlay.paste(decoration, (px, py), decoration)
+    if (seed // 2) % 2 == 0:
+        px = w - tinted.width - margin
+    else:
+        px = margin - round(tinted.width * 0.2)
+    py = margin - round(h * 0.02)
+    overlay.paste(tinted, (px, py), tinted)
     _apply_overlay(canvas, overlay)
 
 
-def _apply_decoration(canvas: Image.Image, style: StyleConfig, shot_id: str) -> None:
+def _apply_decoration(canvas: Image.Image, style: StyleConfig, shot_id: str, raw: Image.Image) -> None:
     if style.decoration == "shapes":
-        _draw_shape_decorations(canvas, style, shot_id)
+        _draw_shape_decorations(canvas, style, shot_id, raw)
     elif style.decoration == "svg":
-        _draw_svg_decoration(canvas, style, shot_id)
+        _draw_svg_decoration(canvas, style, shot_id, raw)
 
 
 def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
@@ -248,14 +354,21 @@ def render_shot(
 ) -> Path:
     canvas_w, canvas_h = devices_mod.store_resolution(device)
     raw = Image.open(raw_path)
-    title_color = _hex_to_rgb(cfg.style.title_color)
 
     canvas = _build_background(canvas_w, canvas_h, raw, cfg.style)
-    _apply_decoration(canvas, cfg.style, shot_id)
-    draw = ImageDraw.Draw(canvas)
+    _apply_decoration(canvas, cfg.style, shot_id, raw)
 
     margin = round(canvas_w * _MARGIN_RATIO)
-    title_area_h = round(canvas_h * _TITLE_AREA_RATIO)
+    top_padding = round(canvas_h * _TOP_PADDING_RATIO)
+
+    # Sampled after background+decoration, before any text is drawn, so the color
+    # picked reflects what text will actually sit on. The exact wrapped text height
+    # isn't known yet, so this just samples a representative top band.
+    sample_h = round(canvas_h * 0.2)
+    title_band = ImageStat.Stat(canvas.crop((0, 0, canvas_w, sample_h))).mean[:3]
+    title_color = _readable_text_color(tuple(round(c) for c in title_band), _hex_to_rgb(cfg.style.title_color))
+
+    draw = ImageDraw.Draw(canvas)
 
     text_max_width = canvas_w - margin * 2
 
@@ -275,7 +388,7 @@ def render_shot(
         sub_gap = round(sub_font.size * 0.5)
 
     total_text_h = text_block_h + (sub_gap + sub_line_height * len(sub_lines) if sub_lines else 0)
-    text_top = round((max(title_area_h, total_text_h) - total_text_h) / 2)
+    text_top = top_padding
 
     for i, line in enumerate(lines):
         w = draw.textlength(line, font=title_font)
@@ -297,28 +410,37 @@ def render_shot(
                 fill=title_color,
             )
 
-    title_area_h = max(title_area_h, total_text_h)
+    content_top = text_top + total_text_h + round(canvas_h * _TEXT_DEVICE_GAP_RATIO)
 
     framed = _framed_device_image(raw, device)
 
     device_area_w = canvas_w - margin * 2
-    device_area_h = canvas_h - title_area_h - margin
-    scale = min(device_area_w / framed.width, device_area_h / framed.height)
-    framed_resized = framed.resize(
-        (round(framed.width * scale), round(framed.height * scale)), Image.LANCZOS
-    )
+    device_area_h = canvas_h - content_top - margin
 
     if cfg.style.layout == "tilted":
+        # Scale directly against the *rotated* bounding box, not the upright one then
+        # shrunk again — fitting upright first and re-shrinking after rotation wastes
+        # space (the diagonal bounding box is bigger), leaving the device visibly
+        # smaller/more surrounded by whitespace than the other layouts. Also use a much
+        # smaller side margin — see _TILT_MARGIN_RATIO.
+        device_area_w = canvas_w - round(canvas_w * _TILT_MARGIN_RATIO) * 2
         direction = 1 if _seed_for(shot_id) % 2 == 0 else -1
-        rotated = framed_resized.rotate(
+        angle = math.radians(cfg.style.tilt_degrees)
+        cos_a, sin_a = abs(math.cos(angle)), abs(math.sin(angle))
+        bbox_w = framed.width * cos_a + framed.height * sin_a
+        bbox_h = framed.width * sin_a + framed.height * cos_a
+        scale = min(device_area_w / bbox_w, device_area_h / bbox_h)
+        framed_resized = framed.resize(
+            (round(framed.width * scale), round(framed.height * scale)), Image.LANCZOS
+        )
+        framed_resized = framed_resized.rotate(
             cfg.style.tilt_degrees * direction, expand=True, resample=Image.BICUBIC
         )
-        shrink = min(device_area_w / rotated.width, device_area_h / rotated.height, 1.0)
-        if shrink < 1.0:
-            rotated = rotated.resize(
-                (round(rotated.width * shrink), round(rotated.height * shrink)), Image.LANCZOS
-            )
-        framed_resized = rotated
+    else:
+        scale = min(device_area_w / framed.width, device_area_h / framed.height)
+        framed_resized = framed.resize(
+            (round(framed.width * scale), round(framed.height * scale)), Image.LANCZOS
+        )
 
     paste_x = round((canvas_w - framed_resized.width) / 2)
     paste_y = canvas_h - margin - framed_resized.height

@@ -59,18 +59,26 @@ undecorated look.
 style:
   background_color: "#FAFAF8"
   background_mode: "solid" # solid | auto | gradient
-  gradient_color2: "#D8E6FF" # 2nd color for background_mode: gradient (top -> bottom)
+  gradient_color2: "#D8E6FF" # 2nd color for background_mode: gradient (top -> bottom).
+  # Omit it and it's auto-derived per shot instead: a vivid accent color sampled from
+  # that screenshot's own content (skipping white/gray UI chrome), pastel-lightened.
   title_color: "#1A1A1A"
   font_bold: "Poppins-Bold.ttf"
   font_regular: "Poppins-Regular.ttf"
   layout: "centered" # centered | tilted
   tilt_degrees: 6 # rotation for layout: tilted; alternates left/right per shot
   decoration: "none" # none | shapes | svg
-  decoration_color: "#1A1A1A" # for decoration: shapes (defaults to title_color)
+  decoration_color: "#1A1A1A" # for decoration: shapes | svg. Omit it and it's
+  # auto-derived the same way as gradient_color2 (falls back to title_color if the
+  # screenshot has nothing vivid enough to sample).
   decoration_svg_dir: decorations # for decoration: svg — dir of .svg files, one picked
   # per shot deterministically, rasterized via CairoSVG and drawn behind the device at
   # low opacity. Path is relative to the config file's own directory.
 ```
+
+Text color is also always auto-checked for contrast against whatever it actually sits
+on (background + decoration) — `title_color` is kept if it already contrasts, otherwise
+swapped for white-on-dark or near-black-on-light automatically.
 
 `background_mode: auto` and `background_mode: gradient` are mutually exclusive —
 `gradient` always uses `background_color`/`gradient_color2` and ignores per-shot

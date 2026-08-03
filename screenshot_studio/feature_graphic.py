@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from .compose import _font_for_text, _hex_to_rgb, _wrap_text
+from .compose import _font_for_text, _hex_to_rgb, _readable_text_color, _wrap_text
 from .config import StudioConfig
 
 WIDTH, HEIGHT = 1024, 500
@@ -12,7 +12,7 @@ WIDTH, HEIGHT = 1024, 500
 
 def generate_feature_graphic(cfg: StudioConfig, lang: str, headline: str, subtitle: str = "") -> Path:
     bg_color = _hex_to_rgb(cfg.style.background_color)
-    title_color = _hex_to_rgb(cfg.style.title_color)
+    title_color = _readable_text_color(bg_color, _hex_to_rgb(cfg.style.title_color))
 
     canvas = Image.new("RGB", (WIDTH, HEIGHT), bg_color)
     draw = ImageDraw.Draw(canvas)

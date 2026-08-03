@@ -35,8 +35,10 @@ class StyleConfig:
     font_regular: str = "Poppins-Regular.ttf"
     # "solid" always uses background_color. "auto" samples each raw screenshot's own
     # edge color per shot and lightens it toward white if needed for text contrast,
-    # falling back to background_color only if that sampling fails. "gradient" ignores
-    # sampling and blends background_color -> gradient_color2 top to bottom.
+    # falling back to background_color only if that sampling fails. "gradient" blends
+    # background_color -> gradient_color2 top to bottom; if gradient_color2 is unset,
+    # it's auto-derived per shot from a vivid accent color sampled from that
+    # screenshot's own content (not its white/gray UI chrome), pastel-lightened.
     background_mode: str = "solid"
     gradient_color2: str | None = None
     # "centered": device sits upright, bottom-anchored, centered. "tilted": device is
@@ -47,6 +49,8 @@ class StyleConfig:
     # dependency), or "svg" (rasterizes a .svg file from decoration_svg_dir behind the
     # device via CairoSVG, picked deterministically per shot id).
     decoration: str = "none"
+    # If unset, auto-derived per shot the same way as gradient_color2 (falls back to
+    # title_color if the screenshot has no sufficiently vivid content to sample).
     decoration_color: str | None = None
     decoration_svg_dir: Path | None = None
 
