@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ..config import DeviceConfig, StudioConfig
-from . import android, ios
+from . import android, flutter_app, ios
 
 
 def run_capture(cfg: StudioConfig, only_device: str | None = None) -> None:
@@ -16,11 +16,8 @@ def run_capture(cfg: StudioConfig, only_device: str | None = None) -> None:
             _run_android_device(cfg, key, device)
 
 
-def _capture_shots(cfg: StudioConfig, device_key: str, take_screenshot) -> None:
-    print(
-        f"Launch {cfg.app.name} on this device now (flutter run, or from Xcode/Android Studio), "
-        f"then walk through the shots below."
-    )
+def _run_shot_loop(cfg: StudioConfig, device_key: str, take_screenshot) -> None:
+    print("App is running. Walk through the shots below.")
     for shot in cfg.shots:
         prompt = f"[{device_key}] Navigate to: {shot.title!r} (id={shot.id}) — press Enter to capture, or 's' to skip: "
         answer = input(prompt).strip().lower()
@@ -34,25 +31,53 @@ def _capture_shots(cfg: StudioConfig, device_key: str, take_screenshot) -> None:
 
 def _run_ios_device(cfg: StudioConfig, key: str, device: DeviceConfig) -> None:
     udid = ios.find_udid(device.identifier)
-    print(f"Booting simulator {device.identifier} ({udid})...")
-    ios.boot(udid)
+    was_running = ios.device_state(udid) == "Booted"
+    if was_running:
+        print(f"Simulator {device.identifier} already running, reusing it.")
+    else:
+        print(f"Booting simulator {device.identifier} ({udid})...")
+    ios.boot(udid)  # no-op boot if already up; still focuses the Simulator window
+
+    flutter_proc = None
     try:
-        _capture_shots(cfg, key, lambda dest: ios.screenshot(udid, dest))
+        print(f"Launching {cfg.app.name} (flutter run)... this can take a minute")
+        flutter_proc, log_path = flutter_app.launch(cfg.app.flutter_dir, udid)
+        flutter_app.wait_until_ready(log_path)
+        _run_shot_loop(cfg, key, lambda dest: ios.screenshot(udid, dest))
     finally:
-        print(f"Shutting down {device.identifier}...")
-        ios.shutdown(udid)
+        if flutter_proc:
+            flutter_app.stop(flutter_proc)
+        if was_running:
+            print(f"Leaving {device.identifier} running (it was already open).")
+        else:
+            print(f"Shutting down {device.identifier}...")
+            ios.shutdown(udid)
 
 
 def _run_android_device(cfg: StudioConfig, key: str, device: DeviceConfig) -> None:
-    print(f"Booting emulator {device.identifier}...")
-    proc = android.boot(device.identifier)
-    try:
+    existing_serial = android.find_running_serial(device.identifier)
+    if existing_serial:
+        print(f"Emulator {device.identifier} already running as {existing_serial}, reusing it.")
+        serial = existing_serial
+        we_booted = False
+    else:
+        print(f"Booting emulator {device.identifier}...")
+        android.boot(device.identifier)
         serial = android.wait_for_serial()
         print(f"Emulator ready as {serial}")
-        _capture_shots(cfg, key, lambda dest: android.screenshot(serial, dest))
+        we_booted = True
+
+    flutter_proc = None
+    try:
+        print(f"Launching {cfg.app.name} (flutter run)... this can take a minute")
+        flutter_proc, log_path = flutter_app.launch(cfg.app.flutter_dir, serial)
+        flutter_app.wait_until_ready(log_path)
+        _run_shot_loop(cfg, key, lambda dest: android.screenshot(serial, dest))
     finally:
-        print(f"Killing emulator {device.identifier}...")
-        try:
+        if flutter_proc:
+            flutter_app.stop(flutter_proc)
+        if we_booted:
+            print(f"Killing emulator {device.identifier}...")
             android.kill(serial)
-        except NameError:
-            proc.terminate()
+        else:
+            print(f"Leaving emulator {device.identifier} running (it was already open).")

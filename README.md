@@ -25,9 +25,10 @@ font style).
 # One-time: create any missing Android AVDs, cache device bezel frames
 shotstudio setup --config configs/chronal.yaml
 
-# Boots each configured device in turn. For each one it tells you which screen to
-# navigate to; press Enter to capture, 's' to skip. Shuts the device down before
-# moving to the next one.
+# Boots each configured device in turn (reusing it if already running/open),
+# launches the app itself via `flutter run`, then tells you which screen to
+# navigate to; press Enter to capture, 's' to skip. Shuts the device down
+# afterward, unless it was already open before capture started.
 shotstudio capture --config configs/chronal.yaml
 shotstudio capture --config configs/chronal.yaml --device ios_phone   # just one device
 
@@ -54,6 +55,13 @@ names, so `resolve_frame()` looks up by exact identifier; add an entry there for
 new device. If nothing matches (e.g. no modern Android tablet frame exists upstream),
 `compose.py` falls back to a clean procedural rounded-corner + shadow frame instead
 of failing.
+
+## Note on run mode
+
+`capture` always launches the app with plain `flutter run` (debug mode) — the iOS
+Simulator can't run release/profile builds, only physical devices can. Make sure
+your app sets `debugShowCheckedModeBanner: false` on `MaterialApp` (already done
+for chronal) so the red DEBUG ribbon doesn't show up in screenshots.
 
 ## Adding a new app
 

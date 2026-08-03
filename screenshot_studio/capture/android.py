@@ -66,7 +66,31 @@ def create_avd(name: str, package: str, device_profile: str) -> None:
     )
 
 
-def boot(avd_name: str) -> subprocess.Popen:
+def connected_serials() -> list[str]:
+    result = subprocess.run([_adb(), "devices"], capture_output=True, text=True, check=True)
+    return [
+        line.split()[0]
+        for line in result.stdout.splitlines()[1:]
+        if line.strip().endswith("device") and line.startswith("emulator-")
+    ]
+
+
+def find_running_serial(avd_name: str) -> str | None:
+    """Returns the serial of an already-running emulator for this AVD, if any."""
+    for serial in connected_serials():
+        result = subprocess.run(
+            [_adb(), "-s", serial, "emu", "avd", "name"], capture_output=True, text=True
+        )
+        name = result.stdout.strip().splitlines()[0].strip() if result.stdout.strip() else ""
+        if name == avd_name:
+            return serial
+    return None
+
+
+def boot(avd_name: str) -> subprocess.Popen | None:
+    """Starts the AVD if it isn't already running. Returns None if it was already up."""
+    if find_running_serial(avd_name):
+        return None
     if avd_name not in list_avds():
         raise AvdNotFound(f"No AVD named '{avd_name}'. Run `shotstudio setup` to create it.")
     proc = subprocess.Popen(
