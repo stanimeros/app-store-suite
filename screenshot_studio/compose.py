@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from fontTools.ttLib import TTFont
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from . import devices as devices_mod
@@ -14,9 +15,30 @@ _FONTS_DIR = Path(__file__).parent / "fonts"
 _MARGIN_RATIO = 0.08  # side margin as a fraction of canvas width
 _TITLE_AREA_RATIO = 0.22  # fraction of canvas height reserved for title text
 
+# Bundled fallback with broad script coverage (Greek, Cyrillic, etc.), used
+# whenever the configured brand font (e.g. Poppins, which is Latin-only) is
+# missing glyphs for the text being rendered.
+_FALLBACK_FONTS = {"bold": "NotoSans-Bold.ttf", "regular": "NotoSans-Regular.ttf"}
+
+_cmap_cache: dict[str, set[int]] = {}
+
 
 def _font(name: str, size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.truetype(str(_FONTS_DIR / name), size)
+
+
+def _covers(font_name: str, text: str) -> bool:
+    if font_name not in _cmap_cache:
+        _cmap_cache[font_name] = set(TTFont(str(_FONTS_DIR / font_name)).getBestCmap())
+    cmap = _cmap_cache[font_name]
+    return all(ord(c) in cmap for c in text if not c.isspace())
+
+
+def _font_for_text(brand_font_name: str, weight: str, size: int, text: str) -> ImageFont.FreeTypeFont:
+    """Picks the configured brand font if it covers `text`'s characters, otherwise
+    falls back to a bundled font with broader script coverage."""
+    name = brand_font_name if _covers(brand_font_name, text) else _FALLBACK_FONTS[weight]
+    return _font(name, size)
 
 
 def _hex_to_rgb(value: str) -> tuple[int, int, int]:
@@ -113,7 +135,7 @@ def render_shot(
 
     text_max_width = canvas_w - margin * 2
 
-    title_font = _font(cfg.style.font_bold, round(canvas_w * 0.062))
+    title_font = _font_for_text(cfg.style.font_bold, "bold", round(canvas_w * 0.062), title)
     lines = _wrap_text(draw, title, title_font, text_max_width)
     line_height = title_font.size + round(title_font.size * 0.3)
     text_block_h = line_height * len(lines)
@@ -123,7 +145,7 @@ def render_shot(
     sub_line_height = 0
     sub_gap = 0
     if subtitle:
-        sub_font = _font(cfg.style.font_regular, round(canvas_w * 0.032))
+        sub_font = _font_for_text(cfg.style.font_regular, "regular", round(canvas_w * 0.032), subtitle)
         sub_lines = _wrap_text(draw, subtitle, sub_font, text_max_width)
         sub_line_height = sub_font.size + round(sub_font.size * 0.3)
         sub_gap = round(sub_font.size * 0.5)

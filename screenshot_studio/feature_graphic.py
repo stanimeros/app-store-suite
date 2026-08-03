@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from .compose import _font, _hex_to_rgb, _wrap_text
+from .compose import _font_for_text, _hex_to_rgb, _wrap_text
 from .config import StudioConfig
 
 WIDTH, HEIGHT = 1024, 500
@@ -32,7 +32,7 @@ def generate_feature_graphic(cfg: StudioConfig, lang: str, headline: str, subtit
 
     max_text_width = WIDTH - text_left - margin
 
-    font = _font(cfg.style.font_bold, 64)
+    font = _font_for_text(cfg.style.font_bold, "bold", 64, headline)
     lines = _wrap_text(draw, headline, font, max_text_width)
     line_height = font.size + round(font.size * 0.25)
     block_h = line_height * len(lines)
@@ -42,7 +42,7 @@ def generate_feature_graphic(cfg: StudioConfig, lang: str, headline: str, subtit
     sub_line_height = 0
     sub_gap = 0
     if subtitle:
-        sub_font = _font(cfg.style.font_regular, 28)
+        sub_font = _font_for_text(cfg.style.font_regular, "regular", 28, subtitle)
         sub_lines = _wrap_text(draw, subtitle, sub_font, max_text_width)
         sub_line_height = sub_font.size + round(sub_font.size * 0.3)
         sub_gap = round(sub_font.size * 0.6)
