@@ -14,9 +14,10 @@ from .config import load_config
 from .feature_graphic import generate_feature_graphic
 from .frames import fetch as frames_fetch
 from .icons import generate_play_store_icon
+from .store_listing import generate_store_listing
 
-DEFAULT_TABLET_SYSTEM_IMAGE = "system-images;android-37.0;google_apis_playstore_ps16k;arm64-v8a"
-DEFAULT_TABLET_DEVICE_PROFILE = "pixel_tablet"
+DEFAULT_SYSTEM_IMAGE = "system-images;android-37.0;google_apis_playstore_ps16k;arm64-v8a"
+DEFAULT_DEVICE_PROFILE = {"phone": "pixel_6", "tablet": "pixel_tablet"}
 
 
 def cmd_setup(args: argparse.Namespace) -> None:
@@ -32,8 +33,9 @@ def cmd_setup(args: argparse.Namespace) -> None:
 
     for key, device in cfg.devices.items():
         if device.kind == "android" and device.identifier not in existing:
-            print(f"  creating missing AVD '{device.identifier}' for device '{key}'...")
-            android.create_avd(device.identifier, DEFAULT_TABLET_SYSTEM_IMAGE, DEFAULT_TABLET_DEVICE_PROFILE)
+            profile = DEFAULT_DEVICE_PROFILE[devices_mod.device_class(device)]
+            print(f"  creating missing AVD '{device.identifier}' for device '{key}' (profile '{profile}')...")
+            android.create_avd(device.identifier, DEFAULT_SYSTEM_IMAGE, profile)
             print(f"  created '{device.identifier}'")
 
     print("\nPrefetching device frames...")
@@ -83,6 +85,13 @@ def cmd_feature_graphic(args: argparse.Namespace) -> None:
     headline = args.headline or f"{cfg.app.name}"
     dest = generate_feature_graphic(cfg, lang, headline, args.subtitle or "")
     print(f"Feature graphic written to {dest}")
+
+
+def cmd_store_listing(args: argparse.Namespace) -> None:
+    cfg = load_config(args.config)
+    lang = args.lang or cfg.default_language
+    dest = generate_store_listing(cfg, lang)
+    print(f"Store listing copy written to {dest}")
 
 
 def cmd_translate_titles(args: argparse.Namespace) -> None:
@@ -135,6 +144,13 @@ def main(argv: list[str] | None = None) -> None:
     p_fg.add_argument("--headline", help="Override the headline text (defaults to app name)")
     p_fg.add_argument("--subtitle", help="Optional subtitle text shown below the headline")
     p_fg.set_defaults(func=cmd_feature_graphic)
+
+    p_listing = sub.add_parser(
+        "store-listing", help="Generate Google Play / App Store listing copy via the claude CLI"
+    )
+    p_listing.add_argument("--config", required=True)
+    p_listing.add_argument("--lang", help="Language folder to write into (defaults to the first configured language)")
+    p_listing.set_defaults(func=cmd_store_listing)
 
     p_translate = sub.add_parser(
         "translate-titles", help="Translate one language's shot titles/subtitles into another via the claude CLI"

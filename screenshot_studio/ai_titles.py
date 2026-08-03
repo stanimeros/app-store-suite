@@ -44,19 +44,23 @@ class TitleSuggestionError(RuntimeError):
     pass
 
 
-def _run_claude(prompt: str, timeout: float) -> dict:
+def run_claude_text(prompt: str, timeout: float) -> str:
+    """Runs the `claude` CLI non-interactively and returns its raw stdout."""
     try:
         result = subprocess.run(
             ["claude", "-p", prompt], capture_output=True, text=True, timeout=timeout
         )
     except FileNotFoundError as exc:
         raise TitleSuggestionError(
-            "`claude` CLI not found on PATH — install Claude Code to enable AI title features."
+            "`claude` CLI not found on PATH — install Claude Code to enable AI features."
         ) from exc
     if result.returncode != 0:
         raise TitleSuggestionError(f"claude CLI failed: {result.stderr.strip()}")
+    return result.stdout.strip()
 
-    text = result.stdout.strip()
+
+def _run_claude(prompt: str, timeout: float) -> dict:
+    text = run_claude_text(prompt, timeout)
     start, end = text.find("{"), text.rfind("}")
     if start == -1 or end == -1:
         raise TitleSuggestionError(f"Could not parse a JSON response from: {text!r}")

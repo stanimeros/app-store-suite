@@ -22,7 +22,8 @@ def _run_shot_loop(cfg: StudioConfig, device_key: str, take_screenshot) -> None:
         "App is running. Navigate to a screen, then type a short name for it "
         "(e.g. 'home', 'map') and press Enter to capture. Leave blank to finish this device."
     )
-    existing_titles = titles_store.load_titles(cfg)
+    lang = cfg.default_language
+    existing_titles = titles_store.load_titles(cfg, lang)
     while True:
         shot_id = input(f"[{device_key}] shot name (blank to finish): ").strip()
         if not shot_id:
@@ -36,12 +37,12 @@ def _run_shot_loop(cfg: StudioConfig, device_key: str, take_screenshot) -> None:
             continue
         try:
             print("  asking claude for a title...")
-            suggestion = ai_titles.suggest_title(dest, cfg.app.name)
-            titles_store.save_title(cfg, shot_id, suggestion["title"], suggestion.get("subtitle", ""))
+            suggestion = ai_titles.suggest_title(dest, cfg.app.name, lang=lang)
+            titles_store.save_title(cfg, lang, shot_id, suggestion["title"], suggestion.get("subtitle", ""))
             existing_titles[shot_id] = suggestion
             print(f"  title: {suggestion['title']!r}  subtitle: {suggestion.get('subtitle', '')!r}")
         except ai_titles.TitleSuggestionError as exc:
-            print(f"  WARNING: title suggestion failed ({exc}); edit output/titles.json manually")
+            print(f"  WARNING: title suggestion failed ({exc}); edit {cfg.titles_path(lang)} manually")
 
 
 def _run_ios_device(cfg: StudioConfig, key: str, device: DeviceConfig) -> None:

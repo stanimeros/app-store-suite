@@ -42,6 +42,11 @@ shotstudio store-icon --config configs/chronal.yaml
 
 # 1024x500 Play Store feature graphic.
 shotstudio feature-graphic --config configs/chronal.yaml --headline "Plan every trip"
+
+# Google Play / App Store listing copy (app name, descriptions, keywords), generated
+# from the shots' titles/subtitles via the `claude` CLI. Character counts against each
+# store's limits are computed in Python, not trusted from the model's own output.
+shotstudio store-listing --config configs/chronal.yaml
 ```
 
 ## How device frames work
