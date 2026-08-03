@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import io
+import random
 import re
 from collections import Counter
 from pathlib import Path
@@ -9,7 +12,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from . import devices as devices_mod
 from . import titles_store
-from .config import DeviceConfig, StudioConfig
+from .config import DeviceConfig, StudioConfig, StyleConfig
 from .frames import fetch as frames_fetch
 
 _FONTS_DIR = Path(__file__).parent / "fonts"
@@ -131,6 +134,92 @@ def _background_color_for(
     return (r, g, b)
 
 
+def _seed_for(shot_id: str) -> int:
+    """Deterministic per-shot seed so decoration/tilt choices stay stable across
+    re-composing the same shot (and consistent across devices/languages for it)."""
+    return int(hashlib.md5(shot_id.encode()).hexdigest()[:8], 16)
+
+
+def _lerp_color(c1: tuple[int, int, int], c2: tuple[int, int, int], t: float) -> tuple[int, int, int]:
+    return tuple(round(c1[i] + (c2[i] - c1[i]) * t) for i in range(3))
+
+
+def _gradient_background(w: int, h: int, color1: tuple[int, int, int], color2: tuple[int, int, int]) -> Image.Image:
+    column = Image.new("RGB", (1, h))
+    for y in range(h):
+        column.putpixel((0, y), _lerp_color(color1, color2, y / max(h - 1, 1)))
+    return column.resize((w, h), Image.BILINEAR)
+
+
+def _build_background(canvas_w: int, canvas_h: int, raw: Image.Image, style: StyleConfig) -> Image.Image:
+    if style.background_mode == "gradient":
+        color1 = _hex_to_rgb(style.background_color)
+        color2 = _hex_to_rgb(style.gradient_color2) if style.gradient_color2 else tuple(
+            min(255, c + 40) for c in color1
+        )
+        return _gradient_background(canvas_w, canvas_h, color1, color2)
+    bg_color = _background_color_for(raw, style.background_color, style.background_mode)
+    return Image.new("RGB", (canvas_w, canvas_h), bg_color)
+
+
+def _apply_overlay(canvas: Image.Image, overlay: Image.Image) -> None:
+    """Alpha-composites an RGBA overlay onto an RGB canvas in place."""
+    composited = Image.alpha_composite(canvas.convert("RGBA"), overlay).convert("RGB")
+    canvas.paste(composited, (0, 0))
+
+
+def _draw_shape_decorations(canvas: Image.Image, style: StyleConfig, shot_id: str) -> None:
+    """Soft, low-opacity blurred circles behind the device — no extra dependency."""
+    rng = random.Random(_seed_for(shot_id))
+    w, h = canvas.size
+    color = _hex_to_rgb(style.decoration_color) if style.decoration_color else _hex_to_rgb(style.title_color)
+
+    overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    for _ in range(3):
+        radius = rng.uniform(0.18, 0.32) * min(w, h)
+        cx = rng.uniform(0.0, 1.0) * w
+        cy = rng.uniform(0.0, 1.0) * h
+        alpha = rng.randint(14, 26)
+        draw.ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=(*color, alpha))
+    overlay = overlay.filter(ImageFilter.GaussianBlur(min(w, h) * 0.04))
+    _apply_overlay(canvas, overlay)
+
+
+def _draw_svg_decoration(canvas: Image.Image, style: StyleConfig, shot_id: str) -> None:
+    """Rasterizes one .svg from decoration_svg_dir (picked deterministically per shot)
+    behind the device, in the top-right corner at low opacity."""
+    if not style.decoration_svg_dir or not style.decoration_svg_dir.is_dir():
+        return
+    files = sorted(style.decoration_svg_dir.glob("*.svg"))
+    if not files:
+        return
+
+    import cairosvg  # deferred: only needed when decoration_svg is actually configured
+
+    svg_path = files[_seed_for(shot_id) % len(files)]
+    w, h = canvas.size
+    target_h = round(h * 0.4)
+    png_bytes = cairosvg.svg2png(url=str(svg_path), output_height=target_h)
+    decoration = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
+
+    alpha = decoration.split()[3].point(lambda a: round(a * 0.16))
+    decoration.putalpha(alpha)
+
+    overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    px = w - decoration.width - round(w * 0.03)
+    py = round(h * 0.03)
+    overlay.paste(decoration, (px, py), decoration)
+    _apply_overlay(canvas, overlay)
+
+
+def _apply_decoration(canvas: Image.Image, style: StyleConfig, shot_id: str) -> None:
+    if style.decoration == "shapes":
+        _draw_shape_decorations(canvas, style, shot_id)
+    elif style.decoration == "svg":
+        _draw_svg_decoration(canvas, style, shot_id)
+
+
 def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
     words = text.split()
     lines: list[str] = []
@@ -159,10 +248,10 @@ def render_shot(
 ) -> Path:
     canvas_w, canvas_h = devices_mod.store_resolution(device)
     raw = Image.open(raw_path)
-    bg_color = _background_color_for(raw, cfg.style.background_color, cfg.style.background_mode)
     title_color = _hex_to_rgb(cfg.style.title_color)
 
-    canvas = Image.new("RGB", (canvas_w, canvas_h), bg_color)
+    canvas = _build_background(canvas_w, canvas_h, raw, cfg.style)
+    _apply_decoration(canvas, cfg.style, shot_id)
     draw = ImageDraw.Draw(canvas)
 
     margin = round(canvas_w * _MARGIN_RATIO)
@@ -218,6 +307,18 @@ def render_shot(
     framed_resized = framed.resize(
         (round(framed.width * scale), round(framed.height * scale)), Image.LANCZOS
     )
+
+    if cfg.style.layout == "tilted":
+        direction = 1 if _seed_for(shot_id) % 2 == 0 else -1
+        rotated = framed_resized.rotate(
+            cfg.style.tilt_degrees * direction, expand=True, resample=Image.BICUBIC
+        )
+        shrink = min(device_area_w / rotated.width, device_area_h / rotated.height, 1.0)
+        if shrink < 1.0:
+            rotated = rotated.resize(
+                (round(rotated.width * shrink), round(rotated.height * shrink)), Image.LANCZOS
+            )
+        framed_resized = rotated
 
     paste_x = round((canvas_w - framed_resized.width) / 2)
     paste_y = canvas_h - margin - framed_resized.height

@@ -8,6 +8,7 @@ dependencies = [
     "PyYAML>=6.0",
     "Flask>=3.0",
     "fonttools>=4.0",
+    "CairoSVG>=2.7",
 ]
 
 [project.scripts]

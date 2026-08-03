@@ -49,6 +49,34 @@ shotstudio feature-graphic --config configs/chronal.yaml --headline "Plan every 
 shotstudio store-listing --config configs/chronal.yaml
 ```
 
+## Style options
+
+`style:` in a config controls one consistent look for the whole app (not per-shot).
+All fields are optional; omitting them keeps the original solid-background, upright,
+undecorated look.
+
+```yaml
+style:
+  background_color: "#FAFAF8"
+  background_mode: "solid" # solid | auto | gradient
+  gradient_color2: "#D8E6FF" # 2nd color for background_mode: gradient (top -> bottom)
+  title_color: "#1A1A1A"
+  font_bold: "Poppins-Bold.ttf"
+  font_regular: "Poppins-Regular.ttf"
+  layout: "centered" # centered | tilted
+  tilt_degrees: 6 # rotation for layout: tilted; alternates left/right per shot
+  decoration: "none" # none | shapes | svg
+  decoration_color: "#1A1A1A" # for decoration: shapes (defaults to title_color)
+  decoration_svg_dir: decorations # for decoration: svg — dir of .svg files, one picked
+  # per shot deterministically, rasterized via CairoSVG and drawn behind the device at
+  # low opacity. Path is relative to the config file's own directory.
+```
+
+`background_mode: auto` and `background_mode: gradient` are mutually exclusive —
+`gradient` always uses `background_color`/`gradient_color2` and ignores per-shot
+sampling. Tilt direction and svg/shape choice are both derived from a hash of the shot
+id, so the same shot always renders the same way across devices and re-runs.
+
 ## How device frames work
 
 Bezel images and screen-offset metadata come from
