@@ -6,7 +6,7 @@ import sys
 
 from . import ai_titles
 from . import devices as devices_mod
-from . import titles_store
+from . import style_choices, titles_store
 from .capture import android
 from .capture.orchestrator import run_capture
 from .compose import compose_all
@@ -15,6 +15,8 @@ from .feature_graphic import generate_feature_graphic
 from .frames import fetch as frames_fetch
 from .icons import generate_play_store_icon
 from .store_listing import generate_store_listing
+from .style_preview import generate_previews
+from .style_variants import VARIANTS
 
 DEFAULT_SYSTEM_IMAGE = "system-images;android-37.0;google_apis_playstore_ps16k;arm64-v8a"
 DEFAULT_DEVICE_PROFILE = {"phone": "pixel_6", "tablet": "pixel_tablet"}
@@ -71,6 +73,47 @@ def cmd_compose(args: argparse.Namespace) -> None:
     for lang in langs:
         outputs = compose_all(cfg, lang, only_device=args.device)
         print(f"\n[{lang}] {len(outputs)} store screenshot(s) written under {cfg.store_dir(lang)}")
+
+
+def cmd_style_preview(args: argparse.Namespace) -> None:
+    cfg = load_config(args.config)
+    device_key = args.device or next(iter(cfg.devices))
+    lang = args.lang or cfg.default_language
+    shot_ids = args.shot.split(",") if args.shot else None
+
+    sheets = generate_previews(cfg, device_key, lang, shot_ids)
+    print(f"Variants: {', '.join(VARIANTS)}")
+    for path in sheets:
+        print(f"  wrote {path}")
+    print("\nReview each *_compare.png, then run 'shotstudio style-pick' to choose one per shot.")
+
+
+def cmd_style_pick(args: argparse.Namespace) -> None:
+    cfg = load_config(args.config)
+
+    if args.list:
+        choices = style_choices.load_choices(cfg)
+        print(f"Available variants: {', '.join(VARIANTS)}")
+        print("Current per-shot choices:")
+        if not choices:
+            print("  (none — every shot uses the config's default style)")
+        for shot_id, variant in sorted(choices.items()):
+            print(f"  {shot_id}: {variant}")
+        return
+
+    if not args.shot:
+        raise SystemExit("--shot is required (unless using --list)")
+
+    if args.clear:
+        style_choices.clear_choice(cfg, args.shot)
+        print(f"Cleared style override for '{args.shot}' (will use the config's default style)")
+        return
+
+    if not args.variant:
+        raise SystemExit("--variant is required (unless using --clear or --list)")
+
+    style_choices.save_choice(cfg, args.shot, args.variant)
+    print(f"'{args.shot}' will now use the '{args.variant}' style on next compose")
 
 
 def cmd_store_icon(args: argparse.Namespace) -> None:
@@ -133,6 +176,29 @@ def main(argv: list[str] | None = None) -> None:
     p_compose.add_argument("--device", help="Only compose this device key from the config")
     p_compose.add_argument("--lang", help="Only compose this language (defaults to all configured languages)")
     p_compose.set_defaults(func=cmd_compose)
+
+    p_style_preview = sub.add_parser(
+        "style-preview",
+        help="Render every style variant for one or more shots side by side, for comparison",
+    )
+    p_style_preview.add_argument("--config", required=True)
+    p_style_preview.add_argument("--device", help="Device key to preview with (defaults to the first configured device)")
+    p_style_preview.add_argument(
+        "--lang", help="Language to preview with (style is language-independent; defaults to the first configured language)"
+    )
+    p_style_preview.add_argument("--shot", help="Comma-separated shot ids to preview (defaults to all shots)")
+    p_style_preview.set_defaults(func=cmd_style_preview)
+
+    p_style_pick = sub.add_parser(
+        "style-pick",
+        help="Choose a style variant for one shot id (overrides the config's default style for it on future composes)",
+    )
+    p_style_pick.add_argument("--config", required=True)
+    p_style_pick.add_argument("--shot", help="Shot id to set/clear (required unless --list)")
+    p_style_pick.add_argument("--variant", help="Style variant name to use for this shot")
+    p_style_pick.add_argument("--clear", action="store_true", help="Remove this shot's override, reverting to the config's default style")
+    p_style_pick.add_argument("--list", action="store_true", help="List available variants and current per-shot choices")
+    p_style_pick.set_defaults(func=cmd_style_pick)
 
     p_icon = sub.add_parser("store-icon", help="Generate the 512x512 Play Store app icon")
     p_icon.add_argument("--config", required=True)

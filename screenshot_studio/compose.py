@@ -13,7 +13,7 @@ from fontTools.ttLib import TTFont
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageStat
 
 from . import devices as devices_mod
-from . import titles_store
+from . import style_choices, titles_store
 from .config import DeviceConfig, StudioConfig, StyleConfig
 from .frames import fetch as frames_fetch
 
@@ -351,12 +351,19 @@ def render_shot(
     title: str,
     subtitle: str,
     raw_path: Path,
+    style: StyleConfig | None = None,
+    dest_override: Path | None = None,
 ) -> Path:
+    """`style` defaults to `cfg.style`; pass an override (e.g. from style_choices or
+    a style_variants preset) to render this one shot differently. `dest_override`
+    writes elsewhere instead of the real store output (used by style-preview so
+    comparison renders don't clobber the actual composed images)."""
+    style = style or cfg.style
     canvas_w, canvas_h = devices_mod.store_resolution(device)
     raw = Image.open(raw_path)
 
-    canvas = _build_background(canvas_w, canvas_h, raw, cfg.style)
-    _apply_decoration(canvas, cfg.style, shot_id, raw)
+    canvas = _build_background(canvas_w, canvas_h, raw, style)
+    _apply_decoration(canvas, style, shot_id, raw)
 
     margin = round(canvas_w * _MARGIN_RATIO)
     top_padding = round(canvas_h * _TOP_PADDING_RATIO)
@@ -366,13 +373,13 @@ def render_shot(
     # isn't known yet, so this just samples a representative top band.
     sample_h = round(canvas_h * 0.2)
     title_band = ImageStat.Stat(canvas.crop((0, 0, canvas_w, sample_h))).mean[:3]
-    title_color = _readable_text_color(tuple(round(c) for c in title_band), _hex_to_rgb(cfg.style.title_color))
+    title_color = _readable_text_color(tuple(round(c) for c in title_band), _hex_to_rgb(style.title_color))
 
     draw = ImageDraw.Draw(canvas)
 
     text_max_width = canvas_w - margin * 2
 
-    title_font = _font_for_text(cfg.style.font_bold, "bold", round(canvas_w * 0.062), title)
+    title_font = _font_for_text(style.font_bold, "bold", round(canvas_w * 0.062), title)
     lines = _wrap_text(draw, title, title_font, text_max_width)
     line_height = title_font.size + round(title_font.size * 0.3)
     text_block_h = line_height * len(lines)
@@ -382,7 +389,7 @@ def render_shot(
     sub_line_height = 0
     sub_gap = 0
     if subtitle:
-        sub_font = _font_for_text(cfg.style.font_regular, "regular", round(canvas_w * 0.032), subtitle)
+        sub_font = _font_for_text(style.font_regular, "regular", round(canvas_w * 0.032), subtitle)
         sub_lines = _wrap_text(draw, subtitle, sub_font, text_max_width)
         sub_line_height = sub_font.size + round(sub_font.size * 0.3)
         sub_gap = round(sub_font.size * 0.5)
@@ -417,7 +424,7 @@ def render_shot(
     device_area_w = canvas_w - margin * 2
     device_area_h = canvas_h - content_top - margin
 
-    if cfg.style.layout == "tilted":
+    if style.layout == "tilted":
         # Scale directly against the *rotated* bounding box, not the upright one then
         # shrunk again — fitting upright first and re-shrinking after rotation wastes
         # space (the diagonal bounding box is bigger), leaving the device visibly
@@ -425,7 +432,7 @@ def render_shot(
         # smaller side margin — see _TILT_MARGIN_RATIO.
         device_area_w = canvas_w - round(canvas_w * _TILT_MARGIN_RATIO) * 2
         direction = 1 if _seed_for(shot_id) % 2 == 0 else -1
-        angle = math.radians(cfg.style.tilt_degrees)
+        angle = math.radians(style.tilt_degrees)
         cos_a, sin_a = abs(math.cos(angle)), abs(math.sin(angle))
         bbox_w = framed.width * cos_a + framed.height * sin_a
         bbox_h = framed.width * sin_a + framed.height * cos_a
@@ -434,7 +441,7 @@ def render_shot(
             (round(framed.width * scale), round(framed.height * scale)), Image.LANCZOS
         )
         framed_resized = framed_resized.rotate(
-            cfg.style.tilt_degrees * direction, expand=True, resample=Image.BICUBIC
+            style.tilt_degrees * direction, expand=True, resample=Image.BICUBIC
         )
     else:
         scale = min(device_area_w / framed.width, device_area_h / framed.height)
@@ -446,7 +453,7 @@ def render_shot(
     paste_y = canvas_h - margin - framed_resized.height
     canvas.paste(framed_resized, (paste_x, paste_y), framed_resized)
 
-    dest = cfg.store_dir(lang) / device_key / f"{shot_id}.png"
+    dest = dest_override or (cfg.store_dir(lang) / device_key / f"{shot_id}.png")
     dest.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(dest)
     return dest
@@ -465,7 +472,8 @@ def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) ->
             meta = titles.get(shot_id, {})
             title = meta.get("title") or shot_id.replace("_", " ").title()
             subtitle = meta.get("subtitle", "")
-            dest = render_shot(cfg, lang, device_key, device, shot_id, title, subtitle, raw_path)
+            style = style_choices.resolve_style(cfg, shot_id)
+            dest = render_shot(cfg, lang, device_key, device, shot_id, title, subtitle, raw_path, style=style)
             outputs.append(dest)
             print(f"  composed {dest}")
     return outputs
