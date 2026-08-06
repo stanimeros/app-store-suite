@@ -1,7 +1,7 @@
 [project]
-name = "screenshot-studio"
+name = "app-store-suite"
 version = "0.1.0"
-description = "Store-asset automation: framed screenshots, app icons, and Play Store feature graphics for Flutter apps"
+description = "Store-asset automation: framed screenshots, app icons, store listing copy, and Play Store feature graphics for Flutter apps"
 requires-python = ">=3.10"
 dependencies = [
     "Pillow>=10.0",
@@ -12,14 +12,14 @@ dependencies = [
 ]
 
 [project.scripts]
-shotstudio = "screenshot_studio.cli:main"
+appstoresuite = "app_store_suite.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["screenshot_studio*"]
+include = ["app_store_suite*"]
 
 [tool.setuptools.package-data]
-screenshot_studio = ["fonts/*.ttf", "fonts/OFL.txt", "webui_static/*.html"]
+app_store_suite = ["fonts/*.ttf", "fonts/OFL.txt", "webui_static/*.html"]

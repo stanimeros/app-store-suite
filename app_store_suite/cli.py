@@ -85,7 +85,7 @@ def cmd_style_preview(args: argparse.Namespace) -> None:
     print(f"Variants: {', '.join(VARIANTS)}")
     for path in sheets:
         print(f"  wrote {path}")
-    print("\nReview each *_compare.png, then run 'shotstudio style-pick' to choose one per shot.")
+    print("\nReview each *_compare.png, then run 'appstoresuite style-pick' to choose one per shot.")
 
 
 def cmd_style_pick(args: argparse.Namespace) -> None:
@@ -154,7 +154,7 @@ def cmd_translate_titles(args: argparse.Namespace) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="shotstudio", description="Store-asset automation for Flutter apps")
+    parser = argparse.ArgumentParser(prog="appstoresuite", description="Store-asset automation for Flutter apps")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_setup = sub.add_parser("setup", help="Verify tooling, create missing Android AVDs, prefetch device frames")

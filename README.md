@@ -1,52 +1,66 @@
-# screenshot-studio
+# app-store-suite
 
 Store-asset automation for Flutter apps: boots simulators/emulators one at a time,
 guides you through capturing each feature screenshot, then composites the raw
 captures into framed, titled, store-ready marketing images. Also generates the
-512x512 Play Store app icon and the 1024x500 Play Store feature graphic.
+512x512 Play Store app icon, the 1024x500 Play Store feature graphic, and Google
+Play / App Store listing copy via the `claude` CLI.
 
-Reusable across apps — everything is driven by a per-app YAML config under `configs/`.
+Reusable across apps — everything is driven by a per-app YAML config under `configs/`,
+and it installs as a single global `appstoresuite` command so it can be run from any
+project directory, not just this one.
 
 ## Install
 
+Installed once, globally, via [pipx](https://pipx.pypa.io/):
+
 ```bash
-cd screenshot-studio
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
+cd app-store-suite
+pipx install --editable .
+```
+
+`--editable` means pulling future changes in this repo (`git pull`) takes effect
+immediately, without reinstalling. Upgrading after a `git pull`:
+
+```bash
+pipx upgrade app-store-suite
 ```
 
 ## Usage
 
-Point a config at your Flutter project (see `configs/chronal.yaml` for a full example:
-app metadata, 2 iOS + 2 Android devices, the list of shots with titles, and background/
-font style).
+Run `appstoresuite` from anywhere, pointing `--config` at a YAML config that lives
+in (or alongside) whichever app you're generating assets for. See
+`configs/chronal.yaml` in this repo for a full example: app metadata, 2 iOS + 2
+Android devices, the list of shots with titles, and background/font style. Copy that
+file into your own project (or keep configs here under `configs/<app>.yaml`) and
+point `app.flutter_dir` at that project's checkout.
 
 ```bash
 # One-time: create any missing Android AVDs, cache device bezel frames
-shotstudio setup --config configs/chronal.yaml
+appstoresuite setup --config /path/to/your-app/configs/app.yaml
 
 # Boots each configured device in turn (reusing it if already running/open),
 # launches the app itself via `flutter run`, then tells you which screen to
 # navigate to; press Enter to capture, 's' to skip. Shuts the device down
 # afterward, unless it was already open before capture started.
-shotstudio capture --config configs/chronal.yaml
-shotstudio capture --config configs/chronal.yaml --device ios_phone   # just one device
+appstoresuite capture --config /path/to/your-app/configs/app.yaml
+appstoresuite capture --config /path/to/your-app/configs/app.yaml --device ios_phone   # just one device
 
 # Composites output/raw/<device>/<shot>.png into output/store/<device>/<shot>.png:
 # device bezel frame (or a clean rounded-rect fallback), solid background color,
 # and the shot's title rendered in Poppins.
-shotstudio compose --config configs/chronal.yaml
+appstoresuite compose --config /path/to/your-app/configs/app.yaml
 
 # 512x512 Play Store app icon, resized from app.icon_source.
-shotstudio store-icon --config configs/chronal.yaml
+appstoresuite store-icon --config /path/to/your-app/configs/app.yaml
 
 # 1024x500 Play Store feature graphic.
-shotstudio feature-graphic --config configs/chronal.yaml --headline "Plan every trip"
+appstoresuite feature-graphic --config /path/to/your-app/configs/app.yaml --headline "Plan every trip"
 
 # Google Play / App Store listing copy (app name, descriptions, keywords), generated
 # from the shots' titles/subtitles via the `claude` CLI. Character counts against each
 # store's limits are computed in Python, not trusted from the model's own output.
-shotstudio store-listing --config configs/chronal.yaml
+appstoresuite store-listing --config /path/to/your-app/configs/app.yaml
 ```
 
 ## Style options
@@ -91,8 +105,8 @@ id, so the same shot always renders the same way across devices and re-runs.
 
 Bezel images and screen-offset metadata come from
 [fastlane/frameit-frames](https://github.com/fastlane/frameit-frames) (MIT), fetched
-on demand and cached at `~/.cache/screenshot-studio/frames`. The mapping from a
-simulator/AVD name to a frame asset lives in `screenshot_studio/devices.py`
+on demand and cached at `~/.cache/app-store-suite/frames`. The mapping from a
+simulator/AVD name to a frame asset lives in `app_store_suite/devices.py`
 (`FRAME_MAP`) — frameit's device coverage skews toward real iOS/Android hardware
 names, so `resolve_frame()` looks up by exact identifier; add an entry there for any
 new device. If nothing matches (e.g. no modern Android tablet frame exists upstream),

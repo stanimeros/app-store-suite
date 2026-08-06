@@ -22,7 +22,7 @@ def find_running_pid(device_id: str) -> int | None:
     """PID of an already-running `flutter run -d <device_id>` process, if any.
 
     Catches sessions we didn't start ourselves — e.g. left over from a previous
-    `shotstudio` process, or launched by hand — so we don't spawn a duplicate
+    `appstoresuite` process, or launched by hand — so we don't spawn a duplicate
     attached to the same device.
     """
     result = subprocess.run(
@@ -41,7 +41,7 @@ def launch(flutter_dir: Path, device_id: str) -> tuple[subprocess.Popen, Path]:
     app sets `debugShowCheckedModeBanner: false` so the DEBUG ribbon doesn't show
     up in screenshots.
     """
-    log_path = Path(tempfile.gettempdir()) / f"shotstudio_flutter_{device_id.replace(':', '_').replace('/', '_')}.log"
+    log_path = Path(tempfile.gettempdir()) / f"appstoresuite_flutter_{device_id.replace(':', '_').replace('/', '_')}.log"
     log_file = open(log_path, "w")
     proc = subprocess.Popen(
         ["flutter", "run", "-d", device_id],

@@ -92,7 +92,7 @@ def boot(avd_name: str) -> subprocess.Popen | None:
     if find_running_serial(avd_name):
         return None
     if avd_name not in list_avds():
-        raise AvdNotFound(f"No AVD named '{avd_name}'. Run `shotstudio setup` to create it.")
+        raise AvdNotFound(f"No AVD named '{avd_name}'. Run `appstoresuite setup` to create it.")
     proc = subprocess.Popen(
         [_emulator(), "-avd", avd_name, "-no-snapshot-load", "-no-boot-anim"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

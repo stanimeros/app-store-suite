@@ -10,7 +10,7 @@ _BASE_URL = "https://raw.githubusercontent.com/fastlane/frameit-frames/gh-pages/
 
 
 def cache_dir() -> Path:
-    d = Path.home() / ".cache" / "screenshot-studio" / "frames"
+    d = Path.home() / ".cache" / "app-store-suite" / "frames"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

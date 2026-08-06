@@ -342,7 +342,7 @@ def launch_web_ui(cfg: StudioConfig, port: int = 5175) -> None:
     app = create_app(cfg)
     url = f"http://127.0.0.1:{port}"
     threading.Timer(0.8, lambda: webbrowser.open(url)).start()
-    print(f"screenshot-studio UI running at {url} (Ctrl+C to stop)")
+    print(f"app-store-suite UI running at {url} (Ctrl+C to stop)")
     try:
         app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False, threaded=True)
     finally:
