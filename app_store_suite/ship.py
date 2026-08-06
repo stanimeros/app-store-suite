@@ -64,10 +64,16 @@ def ship_android(project_dir: Path, lane: str = "ship_internal") -> None:
     _fastlane(project_dir, "android", lane)
 
 
-def translate_arb(project_dir: Path, activate_source: str | None = None) -> None:
+VENDORED_ARB_TRANSLATE = Path(__file__).parent.parent / "vendor" / "arb_translate"
+
+
+def translate_arb(project_dir: Path, activate_source: str | Path | None = None) -> None:
     """Translates missing ARB strings with arb_translate, then regenerates l10n classes.
 
     Requires ARB_TRANSLATE_API_KEY in the environment or a .env file in project_dir.
+    arb_translate itself is vendored with app-store-suite (vendor/arb_translate) and
+    activated automatically the first time it's needed — pass activate_source to use
+    a different fork instead (an absolute path, or one relative to project_dir).
     """
     import os
 
@@ -87,34 +93,16 @@ def translate_arb(project_dir: Path, activate_source: str | None = None) -> None
         raise ShipError("ARB_TRANSLATE_API_KEY is not set (add it to .env or export it)")
 
     if shutil.which("arb_translate") is None:
-        if not activate_source:
-            raise ShipError(
-                "arb_translate not found on PATH. Install it with "
-                "`dart pub global activate arb_translate`, or pass activate_source "
-                "to activate a local fork (path relative to project_dir)."
-            )
+        source = Path(activate_source) if activate_source else VENDORED_ARB_TRANSLATE
+        if not source.is_absolute():
+            source = project_dir / source
+        if not source.exists():
+            raise ShipError(f"arb_translate source not found at {source}")
         _run(
-            ["dart", "pub", "global", "activate", "--source", "path", activate_source],
+            ["dart", "pub", "global", "activate", "--source", "path", str(source)],
             cwd=project_dir, env=env,
         )
 
     _run(["arb_translate"], cwd=project_dir, env=env)
     _run(["flutter", "pub", "get"], cwd=project_dir, env=env)
     _run(["flutter", "gen-l10n"], cwd=project_dir, env=env)
-
-
-def ship_backend(project_dir: Path, activate_source: str | None = None) -> None:
-    """Translates ARB strings, refreshes firestore.indexes.json, deploys Firestore + Functions."""
-    _require("firebase")
-
-    translate_arb(project_dir, activate_source=activate_source)
-
-    indexes = subprocess.run(
-        ["firebase", "firestore:indexes"], cwd=project_dir, capture_output=True, text=True
-    )
-    if indexes.returncode != 0:
-        raise ShipError(f"`firebase firestore:indexes` failed: {indexes.stderr}")
-    (project_dir / "firestore.indexes.json").write_text(indexes.stdout)
-
-    _run(["firebase", "deploy", "--only", "firestore"], cwd=project_dir)
-    _run(["firebase", "deploy", "--only", "functions"], cwd=project_dir)

@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 .venv/
 *.egg-info/
+vendor/arb_translate/.dart_tool/
+vendor/arb_translate/build/

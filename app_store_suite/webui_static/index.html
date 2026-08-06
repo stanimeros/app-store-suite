@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Screenshot Studio</title>
+<title>App Store Suite</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
   :root {
@@ -246,37 +246,153 @@
     cursor: pointer;
   }
   .lang-row select:disabled { opacity: 0.5; cursor: default; }
+
+  .tabs { display: flex; gap: 4px; margin-top: 14px; }
+  .tab-btn {
+    border: none;
+    background: none;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 14px;
+    cursor: pointer;
+    border-radius: 8px 8px 0 0;
+    border-bottom: 2px solid transparent;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .toolbar { display: flex; gap: 10px; padding: 14px 24px; background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+
+  .gallery { display: flex; flex-wrap: wrap; gap: 18px; }
+  .gallery-group { display: flex; flex-direction: column; gap: 8px; }
+  .gallery-group h3 { font-size: 12px; color: var(--muted); margin: 0; font-weight: 600; }
+  .gallery-shots { display: flex; flex-wrap: wrap; gap: 12px; }
+  .gallery-item { width: 140px; }
+  .gallery-item img { width: 100%; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); }
+  .gallery-item .caption { font-size: 11px; color: var(--muted); margin-top: 4px; text-align: center; }
+  .gallery-item .missing {
+    width: 100%; aspect-ratio: 9/16; border-radius: 8px; border: 1px dashed var(--border);
+    display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 11px;
+  }
+
+  textarea.listing-editor {
+    width: 100%;
+    min-height: 420px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel);
+    color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px;
+    line-height: 1.5;
+    padding: 14px;
+    resize: vertical;
+  }
+  .listing-actions { display: flex; gap: 8px; margin-top: 10px; }
+
+  .ship-grid { display: flex; gap: 14px; flex-wrap: wrap; }
+  .ship-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    width: 220px;
+  }
+  .ship-card h3 { font-size: 13px; margin: 0 0 4px; }
+  .ship-card p { font-size: 12px; color: var(--muted); margin: 0 0 12px; }
+  .ship-card .btn { width: 100%; justify-content: center; }
+  .ship-card.danger .btn { background: var(--danger); color: #fff; border-color: var(--danger); }
 </style>
 </head>
 <body>
   <header>
-    <h1 id="app-title">Screenshot Studio</h1>
-    <p class="tagline">Pick a device, capture a screen, and Claude writes the title for you.</p>
+    <h1 id="app-title">App Store Suite</h1>
+    <p class="tagline">Unattended capture, store previews, metadata, and shipping — all in one place.</p>
     <div class="lang-row">
       <label for="lang-select">Language</label>
       <select id="lang-select"></select>
     </div>
-    <div class="devices" id="devices"></div>
+    <div class="tabs" id="tabs">
+      <button class="tab-btn active" data-tab="capture">Auto-Capture</button>
+      <button class="tab-btn" data-tab="preview">Store Preview</button>
+      <button class="tab-btn" data-tab="metadata">Metadata</button>
+      <button class="tab-btn" data-tab="ship">Ship</button>
+    </div>
   </header>
   <div class="status-row">
     <span class="badge" id="status-badge">Idle</span>
     <span class="status-text" id="status-text">Loading…</span>
   </div>
-  <div class="capture-bar">
-    <input id="shot-name-input" type="text" placeholder="Name this screen, e.g. home, itinerary, map…" />
-    <button class="capture-btn" id="capture-btn">
-      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2Z"></path><circle cx="12" cy="13" r="4"></circle></svg>
-      <span id="capture-btn-label">Capture</span>
-    </button>
+
+  <div class="tab-panel active" id="tab-capture">
+    <div class="toolbar">
+      <button class="btn primary" id="auto-capture-all-btn">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2Z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+        Run auto-capture (all devices)
+      </button>
+      <div class="devices" id="devices"></div>
+    </div>
+    <main>
+      <h2>Captured shots</h2>
+      <table class="matrix" id="matrix" style="display:none">
+        <thead><tr id="matrix-head"><th>Feature</th></tr></thead>
+        <tbody id="matrix-body"></tbody>
+      </table>
+      <div class="empty-state" id="empty-state">Nothing captured yet — add shots (id + deep-link route) to the config, then run auto-capture.</div>
+      <div class="empty-state" id="no-shots-configured" style="display:none">
+        No <code>shots:</code> configured for this app yet — see README's "Auto-capture requirements" for what to add (deep_link_scheme + shots list).
+      </div>
+    </main>
   </div>
-  <main>
-    <h2>Captured shots</h2>
-    <table class="matrix" id="matrix" style="display:none">
-      <thead><tr id="matrix-head"><th>Feature</th></tr></thead>
-      <tbody id="matrix-body"></tbody>
-    </table>
-    <div class="empty-state" id="empty-state">Nothing captured yet — select a device above, name a screen, and hit Capture.</div>
-  </main>
+
+  <div class="tab-panel" id="tab-preview">
+    <div class="toolbar">
+      <button class="btn primary" id="compose-btn-2">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+        Compose Store Images
+      </button>
+      <button class="btn" id="randomize-style-btn">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"></path><path d="M4 20 21 3"></path><path d="M21 16v5h-5"></path><path d="M15 15l6 6"></path><path d="M4 4l5 5"></path></svg>
+        Regenerate with random style
+      </button>
+    </div>
+    <main>
+      <div class="gallery" id="preview-gallery"></div>
+      <div class="empty-state" id="preview-empty-state">Nothing composed yet for this language — capture some shots, then hit Compose.</div>
+    </main>
+  </div>
+
+  <div class="tab-panel" id="tab-metadata">
+    <main>
+      <p class="tagline" style="margin-bottom:14px;">Google Play / App Store listing copy for the current language — edit freely, or ask Claude to draft it from your shot titles.</p>
+      <textarea class="listing-editor" id="listing-editor" placeholder="No listing copy yet for this language."></textarea>
+      <div class="listing-actions">
+        <button class="btn primary" id="save-listing-btn">Save</button>
+        <button class="btn" id="generate-listing-btn">Regenerate via Claude</button>
+      </div>
+    </main>
+  </div>
+
+  <div class="tab-panel" id="tab-ship">
+    <main>
+      <div class="ship-grid">
+        <div class="ship-card">
+          <h3>TestFlight</h3>
+          <p>Build the ipa and upload to TestFlight via fastlane.</p>
+          <button class="btn" id="ship-ios-btn">Ship iOS</button>
+        </div>
+        <div class="ship-card">
+          <h3>Play Internal Testing</h3>
+          <p>Build the App Bundle and upload via fastlane.</p>
+          <button class="btn" id="ship-android-btn">Ship Android</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
   <footer>
     <button class="btn" id="quit-btn">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
@@ -296,9 +412,27 @@ const ICON_RESTART = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="
 let lastStateJson = null;
 let builtDeviceCols = false;
 let currentState = null;
+let activeTab = 'capture';
+let listingLang = null;      // lang currently loaded into the metadata editor
+let listingDirty = false;    // user has unsaved edits
 const deviceEls = new Map();       // key -> {btn, progressEl}
 const deviceOrder = [];            // device keys, in table column order
 const rowEls = new Map();          // shotId -> {tr, titleEl, subtitleEl, cells: Map(deviceKey -> {td, img})}
+
+for (const btn of document.querySelectorAll('.tab-btn')) {
+  btn.onclick = () => switchTab(btn.dataset.tab);
+}
+
+function switchTab(tab) {
+  activeTab = tab;
+  for (const btn of document.querySelectorAll('.tab-btn')) {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  }
+  for (const panel of document.querySelectorAll('.tab-panel')) {
+    panel.classList.toggle('active', panel.id === `tab-${tab}`);
+  }
+  if (tab === 'metadata' && currentState) loadListing(currentState.current_lang);
+}
 
 async function fetchState() {
   const res = await fetch('/api/state');
@@ -314,8 +448,8 @@ async function fetchState() {
 }
 
 function buildDevices(state) {
-  document.title = `Screenshot Studio — ${state.app_name}`;
-  document.getElementById('app-title').textContent = `Screenshot Studio — ${state.app_name}`;
+  document.title = `App Store Suite — ${state.app_name}`;
+  document.getElementById('app-title').textContent = `App Store Suite — ${state.app_name}`;
 
   const langSelect = document.getElementById('lang-select');
   for (const lang of state.languages) {
@@ -330,9 +464,6 @@ function buildDevices(state) {
   const devicesEl = document.getElementById('devices');
   const head = document.getElementById('matrix-head');
   for (const d of state.devices) {
-    const container = document.createElement('div');
-    container.className = 'device-container';
-
     const btn = document.createElement('button');
     btn.className = 'device-btn';
     const identifierEl = document.createElement('span');
@@ -341,20 +472,11 @@ function buildDevices(state) {
     const progressEl = document.createElement('span');
     progressEl.className = 'progress';
     btn.append(d.key, identifierEl, progressEl);
-    btn.onclick = () => selectDevice(d.key);
+    btn.title = `Run auto-capture on ${d.key} only`;
+    btn.onclick = () => autoCapture(d.key);
 
-    const restartBtn = document.createElement('button');
-    restartBtn.className = 'device-restart-btn';
-    restartBtn.innerHTML = ICON_RESTART;
-    restartBtn.title = 'Restart this device (use if you closed the simulator/emulator manually)';
-    restartBtn.onclick = (e) => {
-      e.stopPropagation();
-      restartDevice(d.key);
-    };
-
-    container.append(btn, restartBtn);
-    devicesEl.appendChild(container);
-    deviceEls.set(d.key, {btn, progressEl, restartBtn});
+    devicesEl.appendChild(btn);
+    deviceEls.set(d.key, {btn, progressEl});
 
     const th = document.createElement('th');
     th.textContent = d.key;
@@ -380,15 +502,11 @@ function ensureRow(shotId) {
 
   const actionsEl = document.createElement('div');
   actionsEl.className = 'row-actions';
-  const captureEl = document.createElement('button');
-  captureEl.className = 'row-capture-btn';
-  captureEl.innerHTML = `${ICON_CAMERA}<span class="label">Capture here</span>`;
-  captureEl.onclick = () => captureExisting(shotId);
   const removeEl = document.createElement('button');
   removeEl.className = 'remove-btn';
   removeEl.innerHTML = `${ICON_TRASH}Remove`;
   removeEl.onclick = () => deleteShot(shotId);
-  actionsEl.append(captureEl, removeEl);
+  actionsEl.append(removeEl);
 
   shotTd.append(titleEl, subtitleEl, idEl, actionsEl);
   tr.appendChild(shotTd);
@@ -405,7 +523,7 @@ function ensureRow(shotId) {
   }
 
   document.getElementById('matrix-body').appendChild(tr);
-  const row = {tr, titleEl, subtitleEl, captureBtn: captureEl, cells};
+  const row = {tr, titleEl, subtitleEl, cells};
   rowEls.set(shotId, row);
   return row;
 }
@@ -433,38 +551,29 @@ function patch(state) {
   } else if (state.busy) {
     badge.textContent = 'Working';
     badge.classList.add('busy');
-  } else if (state.active_device) {
-    badge.textContent = 'Ready';
-    badge.classList.add('ready');
   } else {
     badge.textContent = 'Idle';
   }
 
+  const hasShotsConfigured = state.configured_shots && state.configured_shots.length > 0;
+  document.getElementById('auto-capture-all-btn').disabled = state.busy || !hasShotsConfigured;
+
   for (const d of state.devices) {
-    const {btn, progressEl, restartBtn} = deviceEls.get(d.key);
-    btn.classList.toggle('active', d.key === state.active_device);
-    btn.disabled = state.busy;
-    restartBtn.disabled = state.busy;
+    const {btn, progressEl} = deviceEls.get(d.key);
+    btn.disabled = state.busy || !hasShotsConfigured;
     const done = state.shots.filter((s) => s.captured[d.key]).length;
-    const total = state.shots.length;
-    progressEl.textContent = total ? `${done}/${total} shots captured` : 'no shots yet';
-    const col = document.getElementById(`col-${d.key}`);
-    if (col) col.classList.toggle('active-col', d.key === state.active_device);
+    const total = state.configured_shots ? state.configured_shots.length : state.shots.length;
+    progressEl.textContent = total ? `${done}/${total} shots captured` : 'no shots configured';
   }
 
   document.getElementById('matrix').style.display = state.shots.length ? '' : 'none';
-  document.getElementById('empty-state').style.display = state.shots.length ? 'none' : '';
-
-  const canCapture = state.active_device && !state.busy;
+  document.getElementById('empty-state').style.display = (state.shots.length || !hasShotsConfigured) ? 'none' : '';
+  document.getElementById('no-shots-configured').style.display = (!hasShotsConfigured && !state.shots.length) ? '' : 'none';
 
   for (const shot of state.shots) {
     const row = ensureRow(shot.id);
     row.titleEl.textContent = shot.title || (shot.title_pending ? 'Asking Claude for a title…' : shot.id);
     row.subtitleEl.textContent = shot.subtitle || '';
-    row.captureBtn.disabled = !canCapture;
-    row.captureBtn.querySelector('.label').textContent = state.active_device
-      ? `Capture here (${state.active_device})`
-      : 'Capture here';
 
     for (const key of deviceOrder) {
       const cell = row.cells.get(key);
@@ -486,15 +595,48 @@ function patch(state) {
     }
   }
 
-  const input = document.getElementById('shot-name-input');
-  const captureBtn = document.getElementById('capture-btn');
-  captureBtn.disabled = !canCapture;
-  document.getElementById('capture-btn-label').textContent = state.active_device
-    ? `Capture on ${state.active_device}`
-    : 'Capture';
-  input.disabled = !canCapture;
-
   document.getElementById('compose-btn').disabled = state.busy;
+  document.getElementById('compose-btn-2').disabled = state.busy;
+  document.getElementById('randomize-style-btn').disabled = state.busy;
+  document.getElementById('ship-ios-btn').disabled = state.busy;
+  document.getElementById('ship-android-btn').disabled = state.busy;
+
+  renderPreviewGallery(state);
+
+  if (activeTab === 'metadata' && listingLang !== state.current_lang && !listingDirty) {
+    loadListing(state.current_lang);
+  }
+}
+
+function renderPreviewGallery(state) {
+  const gallery = document.getElementById('preview-gallery');
+  const anyComposed = state.shots.some((s) => Object.values(s.composed).some(Boolean));
+  document.getElementById('preview-empty-state').style.display = anyComposed ? 'none' : '';
+  gallery.style.display = anyComposed ? 'flex' : 'none';
+  gallery.innerHTML = '';
+  for (const key of deviceOrder) {
+    const shotsForDevice = state.shots.filter((s) => s.composed[key]);
+    if (!shotsForDevice.length) continue;
+    const group = document.createElement('div');
+    group.className = 'gallery-group';
+    const h3 = document.createElement('h3');
+    h3.textContent = key;
+    const row = document.createElement('div');
+    row.className = 'gallery-shots';
+    for (const shot of shotsForDevice) {
+      const item = document.createElement('div');
+      item.className = 'gallery-item';
+      const img = document.createElement('img');
+      img.src = `/api/store/${state.current_lang}/${key}/${shot.id}.png?t=${Date.now()}`;
+      const caption = document.createElement('div');
+      caption.className = 'caption';
+      caption.textContent = shot.style_variant ? `${shot.id} (${shot.style_variant})` : shot.id;
+      item.append(img, caption);
+      row.appendChild(item);
+    }
+    group.append(h3, row);
+    gallery.appendChild(group);
+  }
 }
 
 async function deleteShot(shotId) {
@@ -526,12 +668,25 @@ async function restartDevice(key) {
 }
 
 async function selectLanguage(lang) {
+  if (listingDirty && !confirm('Discard unsaved metadata edits and switch language?')) {
+    document.getElementById('lang-select').value = currentState.current_lang;
+    return;
+  }
+  listingDirty = false;
   await fetch('/api/select-language', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({lang}),
   });
   fetchState();
+}
+
+async function loadListing(lang) {
+  const res = await fetch(`/api/store-listing?lang=${encodeURIComponent(lang)}`);
+  const body = await res.json();
+  listingLang = body.lang;
+  listingDirty = false;
+  document.getElementById('listing-editor').value = body.text;
 }
 
 async function submitCapture(name) {
@@ -581,8 +736,61 @@ document.getElementById('compose-btn').onclick = async () => {
 
 document.getElementById('quit-btn').onclick = async () => {
   await fetch('/api/quit', {method: 'POST'});
-  document.body.innerHTML = '<div style="padding:40px;font-family:sans-serif;">Screenshot Studio stopped. You can close this tab.</div>';
+  document.body.innerHTML = '<div style="padding:40px;font-family:sans-serif;">App Store Suite stopped. You can close this tab.</div>';
 };
+
+document.getElementById('compose-btn-2').onclick = async () => {
+  await fetch('/api/compose', {method: 'POST'});
+  fetchState();
+};
+
+document.getElementById('randomize-style-btn').onclick = async () => {
+  if (!confirm('Assign a random style to every captured shot and recompose? This overrides any style-pick choices already made.')) return;
+  await fetch('/api/randomize-style', {method: 'POST'});
+  fetchState();
+};
+
+document.getElementById('listing-editor').addEventListener('input', () => { listingDirty = true; });
+
+document.getElementById('save-listing-btn').onclick = async () => {
+  const lang = listingLang || (currentState && currentState.current_lang);
+  await fetch('/api/store-listing', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({lang, text: document.getElementById('listing-editor').value}),
+  });
+  listingDirty = false;
+  fetchState();
+};
+
+document.getElementById('generate-listing-btn').onclick = async () => {
+  const lang = listingLang || (currentState && currentState.current_lang);
+  if (!confirm(`Ask Claude to draft store listing copy for '${lang}'? This overwrites the text currently in the editor.`)) return;
+  await fetch('/api/generate-store-listing', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({lang}),
+  });
+  listingDirty = false;
+  fetchState();
+};
+
+function shipButton(id, kind, label, warning) {
+  document.getElementById(id).onclick = async () => {
+    if (!confirm(`${warning}\n\nProceed with ${label}?`)) return;
+    await fetch('/api/ship', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({kind}),
+    });
+    fetchState();
+  };
+}
+
+shipButton('ship-ios-btn', 'ios', 'Ship iOS',
+  'This builds and uploads a new TestFlight build.');
+shipButton('ship-android-btn', 'android', 'Ship Android',
+  'This builds and uploads a new Play Store internal testing release.');
 
 fetchState();
 setInterval(fetchState, 1200);

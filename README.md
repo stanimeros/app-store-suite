@@ -1,11 +1,11 @@
 # app-store-suite
 
-Store-asset and shipping automation for Flutter apps: boots simulators/emulators one
-at a time, guides you through capturing each feature screenshot, then composites the
-raw captures into framed, titled, store-ready marketing images. Also generates the
-512x512 Play Store app icon, the 1024x500 Play Store feature graphic, and Google
-Play / App Store listing copy via the `claude` CLI — and ships builds to TestFlight /
-Play Store internal testing via fastlane, and a Firebase backend via the firebase CLI.
+Store-asset and shipping automation for Flutter apps: drives each configured
+simulator/emulator through a fixed list of shots via deep links (`auto-capture`, no
+manual navigation), composites the raw captures into framed, titled, store-ready
+marketing images, generates the 512x512 Play Store app icon, the 1024x500 Play Store
+feature graphic, and Google Play / App Store listing copy via the `claude` CLI — and
+ships builds to TestFlight / Play Store internal testing via fastlane.
 
 Reusable across apps — everything is driven by a per-app YAML config under `configs/`,
 and it installs as a single global `appstoresuite` command so it can be run from any
@@ -86,15 +86,11 @@ appstoresuite ship-android --project-dir /path/to/your-app
 
 # Translates missing Flutter ARB strings via arb_translate, then regenerates the
 # localization classes (`flutter pub get` + `flutter gen-l10n`). Requires
-# ARB_TRANSLATE_API_KEY in the environment or a .env file in --project-dir. If
-# arb_translate isn't installed, either `dart pub global activate arb_translate`
-# yourself, or point at a local fork with --activate-source.
+# ARB_TRANSLATE_API_KEY in the environment or a .env file in --project-dir.
+# arb_translate itself is vendored at vendor/arb_translate (a fork of
+# https://github.com/leancodepl/arb_translate) and gets activated automatically
+# the first time it's needed — pass --activate-source to use a different fork.
 appstoresuite translate-arb --project-dir /path/to/your-app
-
-# Translates ARB strings, refreshes firestore.indexes.json from the deployed
-# indexes, then deploys Firestore (rules + indexes) and Cloud Functions via the
-# firebase CLI. For Flutter apps using Firebase as their backend.
-appstoresuite ship-backend --project-dir /path/to/your-app
 ```
 
 ## Style options
@@ -154,9 +150,65 @@ Simulator can't run release/profile builds, only physical devices can. Make sure
 your app sets `debugShowCheckedModeBanner: false` on `MaterialApp` (already done
 for chronal) so the red DEBUG ribbon doesn't show up in screenshots.
 
+## Auto-capture requirements
+
+`capture` (and the web UI) are interactive: you navigate the running app by hand,
+then name and snap each screen yourself. `auto-capture` replaces that with a fixed
+list of shots the tool drives itself — no navigation, no typing. For the target app
+to support it, it needs to expose three things:
+
+1. **A deep-link scheme.** Declare it in the config:
+
+   ```yaml
+   app:
+     deep_link_scheme: chronal # chronal://<route>
+   ```
+
+   The app must register that scheme (iOS: `CFBundleURLSchemes` in `Info.plist`;
+   Android: an `<intent-filter>` with `android:scheme="chronal"` on the launcher
+   activity) and be able to handle it while cold-starting or already running.
+
+2. **A fixed shot list with stable keys**, one entry per screen you want captured,
+   in the config:
+
+   ```yaml
+   shots:
+     - id: home
+       route: shot/home
+     - id: trip_map
+       route: shot/trip-map
+   ```
+
+   `id` is the filename shots are saved/composed under (must stay stable across
+   runs — renaming it starts that shot over with a fresh AI-suggested title).
+   `route` is whatever your app's router expects after the `scheme://`.
+
+3. **A debug router that lands on each route with sample data already loaded** —
+   no login, no live network calls, no dependency on real user state. A route
+   handler should short-circuit straight to the target screen with mock/sample
+   data injected (chronal does this for trip previews already — reuse that
+   pattern: a `shot/<screen>` route maps to the same screen a normal navigation
+   would reach, but seeded with a canned sample trip instead of requiring the
+   user to have actually created one). Keep this behind a debug-only build flag
+   if the scheme shouldn't be reachable in production.
+
+ARB/localization strings aren't part of this contract — `auto-capture` runs the
+app in whatever locale the device/simulator is already set to, same as `capture`.
+Composed titles/subtitles are still generated separately per shot by
+`store-listing`/`translate-titles`, stored in `output/<app>/<lang>/titles.json`,
+independent of the app's own ARB files.
+
+```bash
+appstoresuite auto-capture --config /path/to/your-app/configs/app.yaml
+appstoresuite auto-capture --config /path/to/your-app/configs/app.yaml --device ios_phone
+appstoresuite auto-capture --config /path/to/your-app/configs/app.yaml --render-delay 3
+```
+
 ## Adding a new app
 
 Copy `configs/chronal.yaml`, point `app.flutter_dir` / `icon_source` at the new
 project, and list its shots. If you add a device identifier not already in
 `FRAME_MAP`, either add a frame mapping in `devices.py` or accept the procedural
-fallback frame.
+fallback frame. Add `deep_link_scheme` + `shots:` too if you want `auto-capture`
+to work for it (see above) — otherwise `capture`/the web UI still work with
+no fixed shot list, naming screens as you go.

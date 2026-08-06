@@ -1,0 +1,11 @@
+{
+  "months": "{count, plural, one{1 month} other{{count} months}}",
+  "@months": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "bat": "Bat"
+}

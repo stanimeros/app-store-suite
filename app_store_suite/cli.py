@@ -9,8 +9,8 @@ from . import ai_titles
 from . import devices as devices_mod
 from . import ship
 from . import style_choices, titles_store
+from .autocapture import run_auto_capture
 from .capture import android
-from .capture.orchestrator import run_capture
 from .compose import compose_all
 from .config import load_config
 from .feature_graphic import generate_feature_graphic
@@ -57,9 +57,9 @@ def cmd_setup(args: argparse.Namespace) -> None:
     print("\nSetup complete.")
 
 
-def cmd_capture(args: argparse.Namespace) -> None:
+def cmd_auto_capture(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
-    run_capture(cfg, only_device=args.device)
+    run_auto_capture(cfg, only_device=args.device, render_delay=args.render_delay)
 
 
 def cmd_ui(args: argparse.Namespace) -> None:
@@ -175,11 +175,6 @@ def cmd_translate_arb(args: argparse.Namespace) -> None:
     print("ARB strings translated and l10n classes regenerated.")
 
 
-def cmd_ship_backend(args: argparse.Namespace) -> None:
-    ship.ship_backend(Path(args.project_dir), activate_source=args.activate_source)
-    print("Backend shipped: Firestore (rules + indexes) and Cloud Functions deployed.")
-
-
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="appstoresuite", description="Store-asset automation for Flutter apps")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -188,10 +183,16 @@ def main(argv: list[str] | None = None) -> None:
     p_setup.add_argument("--config", required=True)
     p_setup.set_defaults(func=cmd_setup)
 
-    p_capture = sub.add_parser("capture", help="Boot each device and walk through capturing shots")
-    p_capture.add_argument("--config", required=True)
-    p_capture.add_argument("--device", help="Only capture this device key from the config")
-    p_capture.set_defaults(func=cmd_capture)
+    p_auto = sub.add_parser(
+        "auto-capture",
+        help="Unattended capture: opens each configured shot's deep link and screenshots it, no navigation needed",
+    )
+    p_auto.add_argument("--config", required=True)
+    p_auto.add_argument("--device", help="Only capture this device key from the config")
+    p_auto.add_argument(
+        "--render-delay", type=float, default=2.0, help="Seconds to wait after opening a deep link before screenshotting"
+    )
+    p_auto.set_defaults(func=cmd_auto_capture)
 
     p_ui = sub.add_parser("ui", help="Open the local web capture UI: pick a device, capture shots with a button")
     p_ui.add_argument("--config", required=True)
@@ -277,20 +278,10 @@ def main(argv: list[str] | None = None) -> None:
     p_translate_arb.add_argument("--project-dir", required=True, help="Flutter project root (contains pubspec.yaml)")
     p_translate_arb.add_argument(
         "--activate-source",
-        help="Path (relative to --project-dir) to a local arb_translate fork to activate if it's not already on PATH",
+        help="Override arb_translate source (absolute, or relative to --project-dir). "
+        "Defaults to app-store-suite's own vendored copy if arb_translate isn't already on PATH.",
     )
     p_translate_arb.set_defaults(func=cmd_translate_arb)
-
-    p_ship_backend = sub.add_parser(
-        "ship-backend",
-        help="Translate ARB strings, refresh firestore.indexes.json, then deploy Firestore + Cloud Functions",
-    )
-    p_ship_backend.add_argument("--project-dir", required=True, help="Firebase project root")
-    p_ship_backend.add_argument(
-        "--activate-source",
-        help="Path (relative to --project-dir) to a local arb_translate fork to activate if it's not already on PATH",
-    )
-    p_ship_backend.set_defaults(func=cmd_ship_backend)
 
     args = parser.parse_args(argv)
     args.func(args)

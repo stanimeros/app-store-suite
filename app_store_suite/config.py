@@ -18,6 +18,9 @@ class AppConfig:
     name: str
     flutter_dir: Path
     icon_source: Path
+    # URL scheme the app registers for debug deep links, e.g. "chronal" for
+    # chronal://<route>. Required only for `auto-capture` — see ShotConfig.
+    deep_link_scheme: str | None = None
 
 
 @dataclass
@@ -25,6 +28,20 @@ class DeviceConfig:
     key: str
     kind: str  # "ios" or "android"
     identifier: str  # simulator name (iOS) or AVD name (Android)
+
+
+@dataclass
+class ShotConfig:
+    """A fixed, named screen the app exposes for unattended capture.
+
+    `route` is opened as `<app.deep_link_scheme>://<route>` — the app's own debug
+    router is responsible for landing on the right screen with sample/mock data
+    already loaded (no login, no live network state). See README's "Auto-capture
+    requirements" section for the full contract.
+    """
+
+    id: str
+    route: str
 
 
 @dataclass
@@ -62,6 +79,14 @@ class StudioConfig:
     style: StyleConfig
     config_path: Path
     languages: list[str] = field(default_factory=lambda: ["en"])
+    shots: list[ShotConfig] = field(default_factory=list)
+
+    def deep_link(self, route: str) -> str:
+        if not self.app.deep_link_scheme:
+            raise ValueError(
+                f"app.deep_link_scheme is not set in {self.config_path} — required for auto-capture"
+            )
+        return f"{self.app.deep_link_scheme}://{route}"
 
     @property
     def default_language(self) -> str:
@@ -109,6 +134,7 @@ def load_config(path: str | Path) -> StudioConfig:
         name=app_raw["name"],
         flutter_dir=flutter_dir,
         icon_source=flutter_dir / app_raw["icon_source"],
+        deep_link_scheme=app_raw.get("deep_link_scheme"),
     )
 
     devices: dict[str, DeviceConfig] = {}
@@ -138,6 +164,11 @@ def load_config(path: str | Path) -> StudioConfig:
 
     languages = raw.get("languages") or ["en"]
 
+    shots = [
+        ShotConfig(id=shot_raw["id"], route=shot_raw["route"])
+        for shot_raw in raw.get("shots") or []
+    ]
+
     return StudioConfig(
-        app=app, devices=devices, style=style, config_path=path, languages=languages
+        app=app, devices=devices, style=style, config_path=path, languages=languages, shots=shots
     )

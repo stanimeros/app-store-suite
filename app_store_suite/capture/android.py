@@ -126,6 +126,14 @@ def wait_for_serial(timeout: float = 180) -> str:
     raise TimeoutError(f"Emulator {serial} did not finish booting within {timeout}s")
 
 
+def open_url(serial: str, url: str) -> None:
+    """Opens a deep link (or any URL) via an ACTION_VIEW intent, e.g. for auto-capture routes."""
+    subprocess.run(
+        [_adb(), "-s", serial, "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", url],
+        capture_output=True, text=True, check=True,
+    )
+
+
 def screenshot(serial: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(

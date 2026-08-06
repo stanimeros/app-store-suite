@@ -50,6 +50,11 @@ def boot(udid: str, timeout: float = 120) -> None:
     raise TimeoutError(f"Simulator {udid} did not report Booted within {timeout}s")
 
 
+def open_url(udid: str, url: str) -> None:
+    """Opens a deep link (or any URL) in the simulator, e.g. for auto-capture routes."""
+    _simctl("openurl", udid, url)
+
+
 def screenshot(udid: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     _simctl("io", udid, "screenshot", str(dest))
