@@ -1,16 +1,9 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
-
-_SLUG_RE = re.compile(r"[^a-z0-9]+")
-
-
-def _slugify(value: str) -> str:
-    return _SLUG_RE.sub("_", value.strip().lower()).strip("_")
 
 
 @dataclass
@@ -94,8 +87,9 @@ class StudioConfig:
 
     @property
     def output_dir(self) -> Path:
-        """Per-app output root: output/<app-slug>/"""
-        return self.config_path.parent.parent / "output" / _slugify(self.app.name)
+        """Output root, next to the config itself (which lives in the app's own repo,
+        e.g. alongside pubspec.yaml/l10n.yaml — not inside app-store-suite)."""
+        return self.config_path.parent / ".appstoresuite"
 
     @property
     def raw_dir(self) -> Path:
@@ -129,7 +123,9 @@ def load_config(path: str | Path) -> StudioConfig:
     raw = yaml.safe_load(path.read_text())
 
     app_raw = raw["app"]
-    flutter_dir = Path(app_raw["flutter_dir"]).expanduser()
+    flutter_dir = Path(app_raw.get("flutter_dir", ".")).expanduser()
+    if not flutter_dir.is_absolute():
+        flutter_dir = (path.parent / flutter_dir).resolve()
     app = AppConfig(
         name=app_raw["name"],
         flutter_dir=flutter_dir,

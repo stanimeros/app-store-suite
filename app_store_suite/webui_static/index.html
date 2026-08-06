@@ -46,16 +46,12 @@
   h1 { font-size: 18px; margin: 0 0 2px; font-weight: 700; letter-spacing: -0.01em; }
   .tagline { font-size: 12px; color: var(--muted); margin: 0 0 14px; }
   .devices { display: flex; gap: 8px; flex-wrap: wrap; }
-  .device-container {
-    position: relative;
-    display: flex;
-  }
   .device-btn {
     border: 1px solid var(--border);
     background: var(--bg);
     color: var(--text);
     border-radius: 10px;
-    padding: 8px 30px 8px 14px;
+    padding: 8px 14px;
     cursor: pointer;
     font-size: 13px;
     font-weight: 600;
@@ -66,29 +62,7 @@
   .device-btn .identifier { display: block; color: var(--muted); font-size: 11px; font-weight: 400; }
   .device-btn .progress { display: block; color: var(--muted); font-size: 11px; font-weight: 400; margin-top: 2px; }
   .device-btn:hover:not(:disabled) { border-color: var(--accent); }
-  .device-btn.active {
-    background: var(--accent);
-    color: var(--accent-text);
-    border-color: var(--accent);
-  }
-  .device-btn.active .identifier, .device-btn.active .progress { color: var(--accent-text); opacity: 0.85; }
   .device-btn:disabled { opacity: 0.5; cursor: default; }
-  .device-restart-btn {
-    position: absolute;
-    top: 6px;
-    right: 6px;
-    border: none;
-    background: none;
-    color: inherit;
-    opacity: 0.6;
-    padding: 3px;
-    cursor: pointer;
-    display: flex;
-    border-radius: 6px;
-  }
-  .device-restart-btn:hover:not(:disabled) { opacity: 1; background: rgba(0,0,0,0.08); }
-  .device-restart-btn:disabled { opacity: 0.3; cursor: default; }
-  .device-restart-btn .icon { width: 12px; height: 12px; }
 
   .status-row {
     display: flex;
@@ -111,40 +85,8 @@
     border: 1px solid var(--border);
   }
   .badge.busy { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); border-color: transparent; }
-  .badge.ready { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); border-color: transparent; }
   .badge.error { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); border-color: transparent; }
   .status-text { font-size: 13px; color: var(--muted); }
-
-  .capture-bar {
-    display: flex;
-    gap: 8px;
-    padding: 14px 24px;
-    background: var(--panel);
-    border-bottom: 1px solid var(--border);
-  }
-  .capture-bar input {
-    flex: 1;
-    max-width: 320px;
-    padding: 9px 12px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--bg);
-    color: var(--text);
-    font-size: 13px;
-  }
-  .capture-bar input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-  button.capture-btn {
-    border: none;
-    background: var(--accent);
-    color: var(--accent-text);
-    border-radius: 8px;
-    padding: 9px 16px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  button.capture-btn:disabled { opacity: 0.4; cursor: default; }
 
   main { max-width: 980px; margin: 0 auto; padding: 20px 24px 100px; overflow-x: auto; }
   h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 10px; }
@@ -163,23 +105,11 @@
     position: sticky;
     top: 0;
   }
-  table.matrix th.active-col { color: var(--accent); }
   .shot-cell { min-width: 200px; }
   .shot-title { font-weight: 600; font-size: 14px; }
   .shot-subtitle { color: var(--muted); font-size: 12px; margin-top: 2px; }
   .shot-id { color: var(--muted); font-size: 11px; margin-top: 4px; }
   .row-actions { display: flex; gap: 12px; margin-top: 6px; }
-  .row-capture-btn {
-    border: none;
-    background: none;
-    color: var(--accent);
-    font-size: 11px;
-    font-weight: 600;
-    cursor: pointer;
-    padding: 0;
-  }
-  .row-capture-btn:hover:not(:disabled) { text-decoration: underline; }
-  .row-capture-btn:disabled { color: var(--muted); cursor: default; }
   .remove-btn {
     border: none;
     background: none;
@@ -231,7 +161,7 @@
   }
   .btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
   .btn:disabled { opacity: 0.4; cursor: default; }
-  .btn, .capture-btn, .row-capture-btn, .remove-btn { display: inline-flex; align-items: center; gap: 6px; }
+  .btn, .remove-btn { display: inline-flex; align-items: center; gap: 6px; }
   .icon { width: 14px; height: 14px; flex-shrink: 0; }
   .lang-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
   .lang-row label { font-size: 12px; color: var(--muted); font-weight: 600; }
@@ -405,9 +335,7 @@
   </footer>
 
 <script>
-const ICON_CAMERA = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2Z"></path><circle cx="12" cy="13" r="4"></circle></svg>';
 const ICON_TRASH = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m5 0V4a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>';
-const ICON_RESTART = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>';
 
 let lastStateJson = null;
 let builtDeviceCols = false;
@@ -649,20 +577,11 @@ async function deleteShot(shotId) {
   fetchState();
 }
 
-async function selectDevice(key) {
-  await fetch('/api/select-device', {
+async function autoCapture(deviceKey) {
+  await fetch('/api/auto-capture', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({key}),
-  });
-  fetchState();
-}
-
-async function restartDevice(key) {
-  await fetch('/api/restart-device', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({key}),
+    body: JSON.stringify({device: deviceKey || null}),
   });
   fetchState();
 }
@@ -689,45 +608,7 @@ async function loadListing(lang) {
   document.getElementById('listing-editor').value = body.text;
 }
 
-async function submitCapture(name) {
-  const deviceKey = currentState && currentState.active_device;
-  const res = await fetch('/api/capture', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({shot_name: name}),
-  });
-  if (!res.ok) {
-    const body = await res.json();
-    alert(body.error || 'Capture failed');
-    return;
-  }
-  const body = await res.json();
-  lastStateJson = null; // force fetchState to re-render even if booleans are unchanged
-  await fetchState();
-  if (deviceKey && body.shot_id) {
-    const cell = rowEls.get(body.shot_id)?.cells.get(deviceKey);
-    if (cell && cell.img) {
-      cell.img.src = `/api/raw/${deviceKey}/${body.shot_id}.png?t=${Date.now()}`;
-    }
-  }
-}
-
-async function doCapture() {
-  const input = document.getElementById('shot-name-input');
-  const name = input.value.trim();
-  if (!name) return;
-  await submitCapture(name);
-  input.value = '';
-}
-
-async function captureExisting(shotId) {
-  await submitCapture(shotId);
-}
-
-document.getElementById('capture-btn').onclick = doCapture;
-document.getElementById('shot-name-input').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') doCapture();
-});
+document.getElementById('auto-capture-all-btn').onclick = () => autoCapture(null);
 
 document.getElementById('compose-btn').onclick = async () => {
   await fetch('/api/compose', {method: 'POST'});

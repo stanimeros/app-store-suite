@@ -194,7 +194,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     p_auto.set_defaults(func=cmd_auto_capture)
 
-    p_ui = sub.add_parser("ui", help="Open the local web capture UI: pick a device, capture shots with a button")
+    p_ui = sub.add_parser("ui", help="Open the local web control panel: auto-capture, preview, metadata, ship")
     p_ui.add_argument("--config", required=True)
     p_ui.add_argument("--port", type=int, default=5175)
     p_ui.set_defaults(func=cmd_ui)
