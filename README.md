@@ -1,10 +1,11 @@
 # app-store-suite
 
-Store-asset automation for Flutter apps: boots simulators/emulators one at a time,
-guides you through capturing each feature screenshot, then composites the raw
-captures into framed, titled, store-ready marketing images. Also generates the
+Store-asset and shipping automation for Flutter apps: boots simulators/emulators one
+at a time, guides you through capturing each feature screenshot, then composites the
+raw captures into framed, titled, store-ready marketing images. Also generates the
 512x512 Play Store app icon, the 1024x500 Play Store feature graphic, and Google
-Play / App Store listing copy via the `claude` CLI.
+Play / App Store listing copy via the `claude` CLI — and ships builds to TestFlight /
+Play Store internal testing via fastlane, and a Firebase backend via the firebase CLI.
 
 Reusable across apps — everything is driven by a per-app YAML config under `configs/`,
 and it installs as a single global `appstoresuite` command so it can be run from any
@@ -61,6 +62,39 @@ appstoresuite feature-graphic --config /path/to/your-app/configs/app.yaml --head
 # from the shots' titles/subtitles via the `claude` CLI. Character counts against each
 # store's limits are computed in Python, not trusted from the model's own output.
 appstoresuite store-listing --config /path/to/your-app/configs/app.yaml
+```
+
+## Shipping
+
+These commands operate directly on a Flutter project checkout (`--project-dir`), no
+YAML config needed — no per-shot/screenshot state, just build + upload plumbing.
+
+```bash
+# Bumps pubspec.yaml's PATCH and +BUILD together, e.g. 1.0.6+9 -> 1.0.7+10.
+# Run once per release, before ship-ios / ship-android, so both platforms ship the
+# same version.
+appstoresuite bump-version --project-dir /path/to/your-app
+
+# Builds the ipa and uploads it to TestFlight, via `bundle exec fastlane ios <lane>`.
+# Requires a Fastfile with that lane (default: ship_testflight) already set up.
+appstoresuite ship-ios --project-dir /path/to/your-app
+appstoresuite ship-ios --project-dir /path/to/your-app --lane ship_testflight
+
+# Builds the App Bundle and uploads it to Play Store internal testing, via
+# `bundle exec fastlane android <lane>` (default lane: ship_internal).
+appstoresuite ship-android --project-dir /path/to/your-app
+
+# Translates missing Flutter ARB strings via arb_translate, then regenerates the
+# localization classes (`flutter pub get` + `flutter gen-l10n`). Requires
+# ARB_TRANSLATE_API_KEY in the environment or a .env file in --project-dir. If
+# arb_translate isn't installed, either `dart pub global activate arb_translate`
+# yourself, or point at a local fork with --activate-source.
+appstoresuite translate-arb --project-dir /path/to/your-app
+
+# Translates ARB strings, refreshes firestore.indexes.json from the deployed
+# indexes, then deploys Firestore (rules + indexes) and Cloud Functions via the
+# firebase CLI. For Flutter apps using Firebase as their backend.
+appstoresuite ship-backend --project-dir /path/to/your-app
 ```
 
 ## Style options

@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from . import ai_titles
 from . import devices as devices_mod
+from . import ship
 from . import style_choices, titles_store
 from .capture import android
 from .capture.orchestrator import run_capture
@@ -153,6 +155,31 @@ def cmd_translate_titles(args: argparse.Namespace) -> None:
     print(f"Wrote {len(translated)} translated title(s) to {dest}")
 
 
+def cmd_bump_version(args: argparse.Namespace) -> None:
+    old, new = ship.bump_version(Path(args.project_dir))
+    print(f"Bumped version: {old} -> {new}")
+
+
+def cmd_ship_ios(args: argparse.Namespace) -> None:
+    ship.ship_ios(Path(args.project_dir), lane=args.lane)
+    print("Uploaded to TestFlight.")
+
+
+def cmd_ship_android(args: argparse.Namespace) -> None:
+    ship.ship_android(Path(args.project_dir), lane=args.lane)
+    print("Uploaded to Play Store internal testing.")
+
+
+def cmd_translate_arb(args: argparse.Namespace) -> None:
+    ship.translate_arb(Path(args.project_dir), activate_source=args.activate_source)
+    print("ARB strings translated and l10n classes regenerated.")
+
+
+def cmd_ship_backend(args: argparse.Namespace) -> None:
+    ship.ship_backend(Path(args.project_dir), activate_source=args.activate_source)
+    print("Backend shipped: Firestore (rules + indexes) and Cloud Functions deployed.")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="appstoresuite", description="Store-asset automation for Flutter apps")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -225,6 +252,45 @@ def main(argv: list[str] | None = None) -> None:
     p_translate.add_argument("--from", dest="from_lang", required=True, help="Source language code, e.g. en")
     p_translate.add_argument("--to", dest="to_lang", required=True, help="Target language code, e.g. el")
     p_translate.set_defaults(func=cmd_translate_titles)
+
+    p_bump = sub.add_parser("bump-version", help="Bump pubspec.yaml's PATCH and +BUILD together")
+    p_bump.add_argument("--project-dir", required=True, help="Flutter project root (contains pubspec.yaml)")
+    p_bump.set_defaults(func=cmd_bump_version)
+
+    p_ship_ios = sub.add_parser(
+        "ship-ios", help="Build the ipa and upload to TestFlight via `fastlane ios <lane>`"
+    )
+    p_ship_ios.add_argument("--project-dir", required=True, help="Flutter project root (contains the Fastfile)")
+    p_ship_ios.add_argument("--lane", default="ship_testflight", help="Fastlane lane name (default: ship_testflight)")
+    p_ship_ios.set_defaults(func=cmd_ship_ios)
+
+    p_ship_android = sub.add_parser(
+        "ship-android", help="Build the App Bundle and upload to Play Store internal testing via `fastlane android <lane>`"
+    )
+    p_ship_android.add_argument("--project-dir", required=True, help="Flutter project root (contains the Fastfile)")
+    p_ship_android.add_argument("--lane", default="ship_internal", help="Fastlane lane name (default: ship_internal)")
+    p_ship_android.set_defaults(func=cmd_ship_android)
+
+    p_translate_arb = sub.add_parser(
+        "translate-arb", help="Translate missing Flutter ARB strings (arb_translate) and regenerate l10n classes"
+    )
+    p_translate_arb.add_argument("--project-dir", required=True, help="Flutter project root (contains pubspec.yaml)")
+    p_translate_arb.add_argument(
+        "--activate-source",
+        help="Path (relative to --project-dir) to a local arb_translate fork to activate if it's not already on PATH",
+    )
+    p_translate_arb.set_defaults(func=cmd_translate_arb)
+
+    p_ship_backend = sub.add_parser(
+        "ship-backend",
+        help="Translate ARB strings, refresh firestore.indexes.json, then deploy Firestore + Cloud Functions",
+    )
+    p_ship_backend.add_argument("--project-dir", required=True, help="Firebase project root")
+    p_ship_backend.add_argument(
+        "--activate-source",
+        help="Path (relative to --project-dir) to a local arb_translate fork to activate if it's not already on PATH",
+    )
+    p_ship_backend.set_defaults(func=cmd_ship_backend)
 
     args = parser.parse_args(argv)
     args.func(args)
