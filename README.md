@@ -1,19 +1,18 @@
 # app-store-suite
 
-Store-asset and shipping automation for Flutter apps: drives each configured
-simulator/emulator through a fixed list of shots via deep links (`auto-capture`, no
-manual navigation), composites the raw captures into framed, titled, store-ready
-marketing images, generates the 512x512 Play Store app icon, the 1024x500 Play Store
-feature graphic, and Google Play / App Store listing copy via the `claude` CLI — and
-ships builds to TestFlight / Play Store internal testing via fastlane.
+Store-asset and shipping automation for Flutter apps: unattended screenshot capture
+via deep links, framed/titled store-ready marketing images, the Play Store icon and
+feature graphic, Google Play / App Store listing copy via the `claude` CLI, and
+shipping builds to TestFlight / Play Store internal testing via fastlane. A local web
+control panel ties it together: run auto-capture, browse composed screenshots per
+language, edit/regenerate listing copy, and ship — all from one page.
 
-Reusable across apps — everything is driven by a per-app YAML config under `configs/`,
-and it installs as a single global `appstoresuite` command so it can be run from any
-project directory, not just this one.
+Installs as a single global `appstoresuite` command (via pipx) so it runs from any
+directory. It holds no per-app state itself — each app's config lives in that app's
+own repo (see `example/app_store_suite.example.yaml`), the same way `pubspec.yaml`
+or `l10n.yaml` do.
 
 ## Install
-
-Installed once, globally, via [pipx](https://pipx.pypa.io/):
 
 ```bash
 cd app-store-suite
@@ -27,47 +26,131 @@ immediately, without reinstalling. Upgrading after a `git pull`:
 pipx upgrade app-store-suite
 ```
 
+## Set up a new app
+
+Copy `example/app_store_suite.example.yaml` into your Flutter app's own repo root
+(e.g. as `app_store_suite.yaml`, alongside `pubspec.yaml`), and fill in `app.name`,
+`icon_source`, your devices, and (if you want `auto-capture`) `deep_link_scheme` +
+`shots:` — see "Auto-capture requirements" below. `flutter_dir: .` assumes the config
+sits at the repo root; adjust if not. Add `.appstoresuite/` to that app's own
+`.gitignore` — it's where all generated output (raw + composed screenshots, listing
+copy, style choices) is written, next to the config.
+
+If a device identifier isn't already in `app_store_suite/devices.py`'s `FRAME_MAP`,
+either add a frame mapping there or accept the procedural rounded-corner fallback
+frame `compose.py` uses instead.
+
 ## Usage
 
-Run `appstoresuite` from anywhere, pointing `--config` at a YAML config that lives
-in (or alongside) whichever app you're generating assets for. See
-`configs/chronal.yaml` in this repo for a full example: app metadata, 2 iOS + 2
-Android devices, the list of shots with titles, and background/font style. Copy that
-file into your own project (or keep configs here under `configs/<app>.yaml`) and
-point `app.flutter_dir` at that project's checkout.
+Every command takes `--config` pointing at wherever you put that app's config.
 
 ```bash
-# One-time: create any missing Android AVDs, cache device bezel frames
-appstoresuite setup --config /path/to/your-app/configs/app.yaml
+# One-time: create any missing Android AVDs, cache device bezel frames.
+appstoresuite setup --config /path/to/your-app/app_store_suite.yaml
 
-# Boots each configured device in turn (reusing it if already running/open),
-# launches the app itself via `flutter run`, then tells you which screen to
-# navigate to; press Enter to capture, 's' to skip. Shuts the device down
-# afterward, unless it was already open before capture started.
-appstoresuite capture --config /path/to/your-app/configs/app.yaml
-appstoresuite capture --config /path/to/your-app/configs/app.yaml --device ios_phone   # just one device
+# Unattended capture: boots each configured device, opens each configured shot's
+# deep link, screenshots it, tears the device down again. See "Auto-capture
+# requirements" below for what the app itself needs to expose.
+appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml
+appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --device ios_phone
+appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --render-delay 3
 
-# Composites output/raw/<device>/<shot>.png into output/store/<device>/<shot>.png:
-# device bezel frame (or a clean rounded-rect fallback), solid background color,
-# and the shot's title rendered in Poppins.
-appstoresuite compose --config /path/to/your-app/configs/app.yaml
+# Composites .appstoresuite/raw/<device>/<shot>.png into
+# .appstoresuite/<lang>/store/<device>/<shot>.png: device bezel frame (or the
+# procedural fallback), background, and the shot's title.
+appstoresuite compose --config /path/to/your-app/app_store_suite.yaml
 
 # 512x512 Play Store app icon, resized from app.icon_source.
-appstoresuite store-icon --config /path/to/your-app/configs/app.yaml
+appstoresuite store-icon --config /path/to/your-app/app_store_suite.yaml
 
 # 1024x500 Play Store feature graphic.
-appstoresuite feature-graphic --config /path/to/your-app/configs/app.yaml --headline "Plan every trip"
+appstoresuite feature-graphic --config /path/to/your-app/app_store_suite.yaml --headline "Plan every trip"
 
 # Google Play / App Store listing copy (app name, descriptions, keywords), generated
 # from the shots' titles/subtitles via the `claude` CLI. Character counts against each
 # store's limits are computed in Python, not trusted from the model's own output.
-appstoresuite store-listing --config /path/to/your-app/configs/app.yaml
+appstoresuite store-listing --config /path/to/your-app/app_store_suite.yaml
+
+# Translate one language's shot titles/subtitles into another via the `claude` CLI
+# (separate from the app's own ARB strings — see "Auto-capture requirements" above).
+appstoresuite translate-titles --config /path/to/your-app/app_store_suite.yaml --from en --to el
+
+# Local web control panel: run auto-capture, browse the composed screenshot gallery
+# per language, regenerate with a random style, edit/regenerate listing copy, and
+# ship — see "Web control panel" below.
+appstoresuite ui --config /path/to/your-app/app_store_suite.yaml
 ```
+
+## Auto-capture requirements
+
+Unattended capture drives the app itself via deep link — no manual navigation, no
+interactive prompts. For the target app to support it, it needs to expose three
+things:
+
+1. **A deep-link scheme.** Declare it in the config:
+
+   ```yaml
+   app:
+     deep_link_scheme: chronal # chronal://<route>
+   ```
+
+   The app must register that scheme (iOS: `CFBundleURLSchemes` in `Info.plist`;
+   Android: an `<intent-filter>` with `android:scheme="chronal"` on the launcher
+   activity) and be able to handle it while cold-starting or already running.
+
+2. **A fixed shot list with stable keys**, one entry per screen you want captured,
+   in the config:
+
+   ```yaml
+   shots:
+     - id: home
+       route: shot/home
+     - id: trip_map
+       route: shot/trip-map
+   ```
+
+   `id` is the filename shots are saved/composed under (must stay stable across
+   runs — renaming it starts that shot over with a fresh AI-suggested title).
+   `route` is whatever your app's router expects after the `scheme://`.
+
+3. **A debug router that lands on each route with sample data already loaded** —
+   no login, no live network calls, no dependency on real user state. A route
+   handler should short-circuit straight to the target screen with mock/sample
+   data injected (chronal does this for trip previews already — reuse that
+   pattern: a `shot/<screen>` route maps to the same screen a normal navigation
+   would reach, but seeded with a canned sample trip instead of requiring the
+   user to have actually created one). Keep this behind a debug-only build flag
+   if the scheme shouldn't be reachable in production.
+
+ARB/localization strings aren't part of this contract — auto-capture runs the app in
+whatever locale the device/simulator is already set to. Composed titles/subtitles are
+generated separately per shot by `store-listing`/`translate-titles`, stored in
+`.appstoresuite/<lang>/titles.json`, independent of the app's own ARB files.
+
+Without `deep_link_scheme` + `shots:` configured, `auto-capture` refuses to run
+(fails fast with what's missing) — every other command still works.
+
+## Web control panel
+
+```bash
+appstoresuite ui --config /path/to/your-app/app_store_suite.yaml
+```
+
+Opens a local page (default `http://127.0.0.1:5175`) with four tabs:
+
+- **Auto-Capture** — run it across all devices or just one; shows which shots are
+  captured per device.
+- **Store Preview** — browse composed screenshots per language; "Regenerate with
+  random style" assigns each shot a random style variant and recomposes.
+- **Metadata** — view/edit the current language's listing copy (a plain-text file,
+  same content `store-listing` writes), or ask Claude to regenerate it.
+- **Ship** — buttons for `ship-ios` / `ship-android`, confirmed before running since
+  they upload a real build.
 
 ## Shipping
 
-These commands operate directly on a Flutter project checkout (`--project-dir`), no
-YAML config needed — no per-shot/screenshot state, just build + upload plumbing.
+These operate directly on a Flutter project checkout (`--project-dir`), no config
+needed.
 
 ```bash
 # Bumps pubspec.yaml's PATCH and +BUILD together, e.g. 1.0.6+9 -> 1.0.7+10.
@@ -131,6 +214,14 @@ swapped for white-on-dark or near-black-on-light automatically.
 sampling. Tilt direction and svg/shape choice are both derived from a hash of the shot
 id, so the same shot always renders the same way across devices and re-runs.
 
+Use `style-preview`/`style-pick` to compare variants and pin one per shot:
+
+```bash
+appstoresuite style-preview --config /path/to/your-app/app_store_suite.yaml
+appstoresuite style-pick --config /path/to/your-app/app_store_suite.yaml --shot home --variant gradient
+appstoresuite style-pick --config /path/to/your-app/app_store_suite.yaml --list
+```
+
 ## How device frames work
 
 Bezel images and screen-offset metadata come from
@@ -145,70 +236,7 @@ of failing.
 
 ## Note on run mode
 
-`capture` always launches the app with plain `flutter run` (debug mode) — the iOS
-Simulator can't run release/profile builds, only physical devices can. Make sure
-your app sets `debugShowCheckedModeBanner: false` on `MaterialApp` (already done
-for chronal) so the red DEBUG ribbon doesn't show up in screenshots.
-
-## Auto-capture requirements
-
-`capture` (and the web UI) are interactive: you navigate the running app by hand,
-then name and snap each screen yourself. `auto-capture` replaces that with a fixed
-list of shots the tool drives itself — no navigation, no typing. For the target app
-to support it, it needs to expose three things:
-
-1. **A deep-link scheme.** Declare it in the config:
-
-   ```yaml
-   app:
-     deep_link_scheme: chronal # chronal://<route>
-   ```
-
-   The app must register that scheme (iOS: `CFBundleURLSchemes` in `Info.plist`;
-   Android: an `<intent-filter>` with `android:scheme="chronal"` on the launcher
-   activity) and be able to handle it while cold-starting or already running.
-
-2. **A fixed shot list with stable keys**, one entry per screen you want captured,
-   in the config:
-
-   ```yaml
-   shots:
-     - id: home
-       route: shot/home
-     - id: trip_map
-       route: shot/trip-map
-   ```
-
-   `id` is the filename shots are saved/composed under (must stay stable across
-   runs — renaming it starts that shot over with a fresh AI-suggested title).
-   `route` is whatever your app's router expects after the `scheme://`.
-
-3. **A debug router that lands on each route with sample data already loaded** —
-   no login, no live network calls, no dependency on real user state. A route
-   handler should short-circuit straight to the target screen with mock/sample
-   data injected (chronal does this for trip previews already — reuse that
-   pattern: a `shot/<screen>` route maps to the same screen a normal navigation
-   would reach, but seeded with a canned sample trip instead of requiring the
-   user to have actually created one). Keep this behind a debug-only build flag
-   if the scheme shouldn't be reachable in production.
-
-ARB/localization strings aren't part of this contract — `auto-capture` runs the
-app in whatever locale the device/simulator is already set to, same as `capture`.
-Composed titles/subtitles are still generated separately per shot by
-`store-listing`/`translate-titles`, stored in `output/<app>/<lang>/titles.json`,
-independent of the app's own ARB files.
-
-```bash
-appstoresuite auto-capture --config /path/to/your-app/configs/app.yaml
-appstoresuite auto-capture --config /path/to/your-app/configs/app.yaml --device ios_phone
-appstoresuite auto-capture --config /path/to/your-app/configs/app.yaml --render-delay 3
-```
-
-## Adding a new app
-
-Copy `configs/chronal.yaml`, point `app.flutter_dir` / `icon_source` at the new
-project, and list its shots. If you add a device identifier not already in
-`FRAME_MAP`, either add a frame mapping in `devices.py` or accept the procedural
-fallback frame. Add `deep_link_scheme` + `shots:` too if you want `auto-capture`
-to work for it (see above) — otherwise `capture`/the web UI still work with
-no fixed shot list, naming screens as you go.
+`auto-capture` always launches the app with plain `flutter run` (debug mode) — the
+iOS Simulator can't run release/profile builds, only physical devices can. Make sure
+your app sets `debugShowCheckedModeBanner: false` on `MaterialApp` so the red DEBUG
+ribbon doesn't show up in screenshots.
