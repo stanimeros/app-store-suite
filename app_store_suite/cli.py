@@ -26,7 +26,7 @@ DEFAULT_DEVICE_PROFILE = {"phone": "pixel_6", "tablet": "pixel_tablet"}
 
 
 def cmd_init(args: argparse.Namespace) -> None:
-    project_dir = Path(args.project_dir)
+    project_dir = Path(args.project_dir) if args.project_dir else Path.cwd()
     config_path = Path(args.config) if args.config else None
     result = scaffold_project(project_dir, config_path=config_path, app_name=args.name, force=args.force)
 
@@ -227,9 +227,13 @@ def main(argv: list[str] | None = None) -> None:
     p_init = sub.add_parser(
         "init", help="Scaffold a new project: app_store_suite.yaml, l10n.yaml, .env.example, fastlane skeleton"
     )
-    p_init.add_argument("--project-dir", required=True, help="Flutter project root to scaffold into")
+    p_init.add_argument("--project-dir", help="Flutter project root to scaffold into (default: current directory)")
     p_init.add_argument("--config", help="Where to write the config (default: <project-dir>/app_store_suite.yaml)")
-    p_init.add_argument("--name", help="App name to fill into the generated config/ARB template")
+    p_init.add_argument(
+        "--name",
+        help="App name to fill into the generated config/ARB template. "
+        "Defaults to pubspec.yaml's `name:`, title-cased.",
+    )
     p_init.add_argument("--force", action="store_true", help="Overwrite files that already exist")
     p_init.set_defaults(func=cmd_init)
 

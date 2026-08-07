@@ -1,9 +1,46 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 EXAMPLE_CONFIG = Path(__file__).parent.parent / "example" / "app_store_suite.example.yaml"
+
+
+def _detect_app_name(project_dir: Path) -> str | None:
+    """Flutter package name from pubspec.yaml, e.g. `my_app` -> `My App`."""
+    pubspec = project_dir / "pubspec.yaml"
+    if not pubspec.exists():
+        return None
+    match = re.search(r"^name:\s*(\S+)", pubspec.read_text(), re.MULTILINE)
+    if not match:
+        return None
+    return match.group(1).replace("_", " ").replace("-", " ").title()
+
+
+def _detect_bundle_id(project_dir: Path) -> str | None:
+    """iOS bundle id from the Runner target's PRODUCT_BUNDLE_IDENTIFIER, skipping
+    the RunnerTests target."""
+    pbxproj = project_dir / "ios" / "Runner.xcodeproj" / "project.pbxproj"
+    if not pbxproj.exists():
+        return None
+    for match in re.finditer(r"PRODUCT_BUNDLE_IDENTIFIER\s*=\s*([\w.]+);", pbxproj.read_text()):
+        value = match.group(1)
+        if not value.endswith(".RunnerTests"):
+            return value
+    return None
+
+
+def _detect_android_package(project_dir: Path) -> str | None:
+    """Android applicationId from android/app/build.gradle(.kts)."""
+    for name in ("build.gradle.kts", "build.gradle"):
+        gradle = project_dir / "android" / "app" / name
+        if not gradle.exists():
+            continue
+        match = re.search(r'applicationId\s*[= ]\s*"([\w.]+)"', gradle.read_text())
+        if match:
+            return match.group(1)
+    return None
 
 L10N_YAML = """\
 arb-dir: lib/l10n
@@ -52,10 +89,10 @@ end
 """
 
 APPFILE = """\
-# app_identifier("com.yourcompany.yourapp") # iOS bundle id / Android package name
+{app_identifier_line} # iOS bundle id, detected from ios/Runner.xcodeproj if present
 # apple_id("you@example.com") # your Apple ID, used for TestFlight uploads
 # json_key_file("keys/your-service-account.json") # Play Console service account
-# package_name("com.yourcompany.yourapp") # Android package name, if it differs
+{package_name_line} # Android package name, detected from android/app/build.gradle if present
 """
 
 
@@ -87,16 +124,37 @@ def scaffold_project(
         path.write_text(content)
         created.append(path)
 
+    app_name = app_name or _detect_app_name(project_dir)
+    bundle_id = _detect_bundle_id(project_dir)
+    android_package = _detect_android_package(project_dir)
+
     config_path = config_path or (project_dir / "app_store_suite.yaml")
     example = EXAMPLE_CONFIG.read_text()
     if app_name:
         example = example.replace("name: YourApp", f"name: {app_name}")
+    if bundle_id:
+        example = example.replace(
+            "# bundle_id: com.yourcompany.yourapp", f"bundle_id: {bundle_id}"
+        )
+    if android_package:
+        example = example.replace(
+            "# android_package_name: com.yourcompany.yourapp", f"android_package_name: {android_package}"
+        )
     _write(config_path, example)
 
     _write(project_dir / "l10n.yaml", L10N_YAML)
     _write(project_dir / "lib" / "l10n" / "app_en.arb", TEMPLATE_ARB.format(app_name=app_name or "YourApp"))
     _write(project_dir / ".env.example", ENV_EXAMPLE)
     _write(project_dir / "fastlane" / "Fastfile", FASTFILE)
-    _write(project_dir / "fastlane" / "Appfile", APPFILE)
+
+    appfile = APPFILE.format(
+        app_identifier_line=(
+            f'app_identifier("{bundle_id}")' if bundle_id else '# app_identifier("com.yourcompany.yourapp")'
+        ),
+        package_name_line=(
+            f'package_name("{android_package}")' if android_package else '# package_name("com.yourcompany.yourapp")'
+        ),
+    )
+    _write(project_dir / "fastlane" / "Appfile", appfile)
 
     return ScaffoldResult(created=created, skipped=skipped)

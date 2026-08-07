@@ -28,13 +28,17 @@ pipx upgrade app-store-suite
 
 ## Set up a new app
 
-`appstoresuite init --project-dir /path/to/your-app --name YourApp` scaffolds the
-starter files most apps need: `app_store_suite.yaml`, `l10n.yaml` + a template
-`lib/l10n/app_en.arb`, `.env.example`, and a `fastlane/` skeleton (Fastfile with
-empty `ship_testflight`/`ship_internal` lanes + Appfile). It never overwrites an
-existing file unless you pass `--force`. Fastlane still needs `fastlane init` run
-separately per-platform to wire up real Apple/Google credentials — the generated
-Fastfile is just a lane-name-matching stub for you to fill in.
+`appstoresuite init` (run from inside your Flutter project, or with `--project-dir`)
+scaffolds the starter files most apps need: `app_store_suite.yaml`, `l10n.yaml` + a
+template `lib/l10n/app_en.arb`, `.env.example`, and a `fastlane/` skeleton (Fastfile
+with empty `ship_testflight`/`ship_internal` lanes + Appfile). App name, iOS bundle
+id, and Android package name are auto-detected from `pubspec.yaml`,
+`ios/Runner.xcodeproj/project.pbxproj`, and `android/app/build.gradle(.kts)` and
+filled into the generated config/Appfile — pass `--name` to override the detected
+app name. It never overwrites an existing file unless you pass `--force`. Fastlane
+still needs `fastlane init` run separately per-platform to wire up real Apple/Google
+credentials — the generated Fastfile is just a lane-name-matching stub for you to
+fill in.
 
 Alternatively, copy `example/app_store_suite.example.yaml` into your Flutter app's own repo root
 (e.g. as `app_store_suite.yaml`, alongside `pubspec.yaml`), and fill in `app.name`,
