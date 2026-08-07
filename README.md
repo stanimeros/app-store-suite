@@ -66,10 +66,17 @@ appstoresuite store-icon --config /path/to/your-app/app_store_suite.yaml
 # 1024x500 Play Store feature graphic.
 appstoresuite feature-graphic --config /path/to/your-app/app_store_suite.yaml --headline "Plan every trip"
 
-# Google Play / App Store listing copy (app name, descriptions, keywords), generated
-# from the shots' titles/subtitles via the `claude` CLI. Character counts against each
-# store's limits are computed in Python, not trusted from the model's own output.
+# Drafts "proposed" Google Play / App Store listing copy (app name, descriptions,
+# keywords) from the shots' titles/subtitles via the `claude` CLI, written into
+# .appstoresuite/<lang>/store_listing.json alongside "current" (see below).
+# Character counts against each store's limits are computed in Python, not
+# trusted from the model's own output.
 appstoresuite store-listing --config /path/to/your-app/app_store_suite.yaml
+
+# Fetches the currently-live listing copy from App Store Connect (fastlane deliver)
+# and/or Play Console (fastlane supply) into "current" in the same JSON file,
+# leaving "proposed" untouched. Requires store credentials in the config (below).
+appstoresuite fetch-listing --config /path/to/your-app/app_store_suite.yaml
 
 # Translate one language's shot titles/subtitles into another via the `claude` CLI
 # (separate from the app's own ARB strings — see "Auto-capture requirements" above).
@@ -130,6 +137,43 @@ generated separately per shot by `store-listing`/`translate-titles`, stored in
 Without `deep_link_scheme` + `shots:` configured, `auto-capture` refuses to run
 (fails fast with what's missing) — every other command still works.
 
+## Listing metadata: current vs. proposed
+
+`.appstoresuite/<lang>/store_listing.json` holds one entry per field (app name,
+descriptions, keywords, etc.), each with a `current` value (what's actually live,
+pulled by `fetch-listing`) and a `proposed` value (a draft, from `store-listing` or
+hand-edited). Nothing is ever uploaded automatically — copy `proposed` into App Store
+Connect / Play Console's own listing forms yourself once you're happy with it.
+
+`fetch-listing` needs store credentials in the config — reuse whatever your Fastfile
+already uses for shipping:
+
+```yaml
+app:
+  bundle_id: com.yourcompany.yourapp
+  asc_key_id: XXXXXXXXXX
+  asc_issuer_id: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+  asc_key_path: keys/AuthKey_XXXXXXXXXX.p8 # relative to flutter_dir
+  android_package_name: com.yourcompany.yourapp
+  play_json_key: keys/your-service-account.json # relative to flutter_dir
+```
+
+Store locale codes don't always match your own language codes (e.g. Play uses
+`el-GR` for Greek where App Store Connect just uses `el`) — `fetch-listing` tries
+your code as-is first, then a couple of common variants for `en`. If it can't find a
+match it fails with the locale codes it actually found, so you can add an override:
+
+```yaml
+store_locales:
+  el: el-GR
+```
+
+`fetch-listing` runs `fastlane deliver`/`fastlane supply` in a scratch
+`fastlane/metadata/` directory inside the app's repo (their standard working
+format — dozens of per-field `.txt` files); app-store-suite reads what it needs
+from there into the JSON and deletes that scratch directory again immediately,
+so it doesn't linger as clutter.
+
 ## Web control panel
 
 ```bash
@@ -140,10 +184,11 @@ Opens a local page (default `http://127.0.0.1:5175`) with four tabs:
 
 - **Auto-Capture** — run it across all devices or just one; shows which shots are
   captured per device.
-- **Store Preview** — browse composed screenshots per language; "Regenerate with
-  random style" assigns each shot a random style variant and recomposes.
-- **Metadata** — view/edit the current language's listing copy (a plain-text file,
-  same content `store-listing` writes), or ask Claude to regenerate it.
+- **Store Preview** — browse composed screenshots per language; per-shot style
+  picker plus "apply one style to all shots".
+- **Metadata** — a table of current (read-only, from the stores) vs. proposed
+  (editable) per field; buttons to fetch current, draft proposed via Claude, or
+  save your edits.
 - **Ship** — buttons for `ship-ios` / `ship-android`, confirmed before running since
   they upload a real build.
 

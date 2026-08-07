@@ -216,20 +216,38 @@
     display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 11px;
   }
 
-  textarea.listing-editor {
-    width: 100%;
-    min-height: 420px;
+  table.listing-table { border-collapse: collapse; width: 100%; }
+  table.listing-table th, table.listing-table td {
     border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--panel);
-    color: var(--text);
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12.5px;
-    line-height: 1.5;
-    padding: 14px;
-    resize: vertical;
+    padding: 8px 10px;
+    vertical-align: top;
+    text-align: left;
   }
-  .listing-actions { display: flex; gap: 8px; margin-top: 10px; }
+  table.listing-table th { background: var(--panel); font-size: 12px; color: var(--muted); font-weight: 600; }
+  .listing-field { font-weight: 600; font-size: 13px; min-width: 140px; }
+  .listing-limit { font-weight: 400; font-size: 11px; color: var(--muted); }
+  .listing-current {
+    white-space: pre-wrap;
+    font-size: 12.5px;
+    color: var(--muted);
+    max-width: 320px;
+  }
+  textarea.proposed-editor {
+    width: 100%;
+    min-height: 60px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 12.5px;
+    line-height: 1.4;
+    padding: 8px;
+    resize: vertical;
+    box-sizing: border-box;
+  }
+  .listing-count { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .listing-count.over { color: var(--danger); font-weight: 600; }
 
   .ship-grid { display: flex; gap: 14px; flex-wrap: wrap; }
   .ship-card {
@@ -309,13 +327,19 @@
   </div>
 
   <div class="tab-panel" id="tab-metadata">
+    <div class="toolbar">
+      <button class="btn" id="fetch-listing-btn">Fetch current from stores</button>
+      <button class="btn" id="generate-listing-btn">Draft proposed via Claude</button>
+      <button class="btn primary" id="save-listing-btn">Save proposed</button>
+    </div>
     <main>
-      <p class="tagline" style="margin-bottom:14px;">Google Play / App Store listing copy for the current language — edit freely, or ask Claude to draft it from your shot titles.</p>
-      <textarea class="listing-editor" id="listing-editor" placeholder="No listing copy yet for this language."></textarea>
-      <div class="listing-actions">
-        <button class="btn primary" id="save-listing-btn">Save</button>
-        <button class="btn" id="generate-listing-btn">Regenerate via Claude</button>
-      </div>
+      <p class="tagline" style="margin-bottom:14px;">
+        <strong>Current</strong> is what's actually live on App Store Connect / Play Console
+        (read-only — "Fetch current from stores" refreshes it). <strong>Proposed</strong> is your
+        draft — edit freely, or have Claude draft it from your shot titles, then copy it into
+        the store's own listing form yourself when ready.
+      </p>
+      <table class="listing-table" id="listing-table"></table>
     </main>
   </div>
 
@@ -356,6 +380,7 @@ let currentState = null;
 let activeTab = 'capture';
 let listingLang = null;      // lang currently loaded into the metadata editor
 let listingDirty = false;    // user has unsaved edits
+let listingPendingReload = false; // a background fetch/generate job is running; reload table when it finishes
 const deviceEls = new Map();       // key -> {btn, progressEl}
 const deviceOrder = [];            // device keys, in table column order
 const rowEls = new Map();          // shotId -> {tr, titleEl, subtitleEl, cells: Map(deviceKey -> {td, img})}
@@ -551,11 +576,19 @@ function patch(state) {
   document.getElementById('apply-all-select').disabled = state.busy;
   document.getElementById('ship-ios-btn').disabled = state.busy;
   document.getElementById('ship-android-btn').disabled = state.busy;
+  document.getElementById('fetch-listing-btn').disabled = state.busy;
+  document.getElementById('generate-listing-btn').disabled = state.busy;
+  document.getElementById('save-listing-btn').disabled = state.busy;
 
   renderPreviewGallery(state);
 
-  if (activeTab === 'metadata' && listingLang !== state.current_lang && !listingDirty) {
-    loadListing(state.current_lang);
+  if (activeTab === 'metadata') {
+    if (listingLang !== state.current_lang && !listingDirty) {
+      loadListing(state.current_lang);
+    } else if (listingPendingReload && !state.busy) {
+      listingPendingReload = false;
+      loadListing(state.current_lang);
+    }
   }
 }
 
@@ -640,12 +673,77 @@ async function selectLanguage(lang) {
   fetchState();
 }
 
+const FIELD_LABELS = {
+  play_app_name: 'Play — App name',
+  play_short_description: 'Play — Short description',
+  play_full_description: 'Play — Full description',
+  ios_app_name: 'App Store — App name',
+  ios_subtitle: 'App Store — Subtitle',
+  ios_promotional_text: 'App Store — Promotional text',
+  ios_keywords: 'App Store — Keywords',
+  ios_description: 'App Store — Description',
+};
+
 async function loadListing(lang) {
   const res = await fetch(`/api/store-listing?lang=${encodeURIComponent(lang)}`);
   const body = await res.json();
   listingLang = body.lang;
   listingDirty = false;
-  document.getElementById('listing-editor').value = body.text;
+  renderListingTable(body.fields);
+}
+
+function renderListingTable(fields) {
+  const table = document.getElementById('listing-table');
+  table.innerHTML = '';
+  const thead = document.createElement('thead');
+  thead.innerHTML = '<tr><th>Field</th><th>Current (live)</th><th>Proposed</th></tr>';
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+
+  for (const [key, label] of Object.entries(FIELD_LABELS)) {
+    const f = fields[key] || {current: '', proposed: '', count: 0, limit: 0};
+    const tr = document.createElement('tr');
+
+    const fieldTd = document.createElement('td');
+    fieldTd.className = 'listing-field';
+    fieldTd.textContent = label;
+    const limitEl = document.createElement('div');
+    limitEl.className = 'listing-limit';
+    limitEl.textContent = `limit ${f.limit}`;
+    fieldTd.appendChild(limitEl);
+
+    const currentTd = document.createElement('td');
+    currentTd.className = 'listing-current';
+    currentTd.textContent = f.current || '(not fetched)';
+
+    const proposedTd = document.createElement('td');
+    const textarea = document.createElement('textarea');
+    textarea.className = 'proposed-editor';
+    textarea.value = f.proposed || '';
+    textarea.dataset.field = key;
+    const countEl = document.createElement('div');
+    countEl.className = 'listing-count';
+    const updateCount = () => {
+      const len = textarea.value.length;
+      countEl.textContent = `${len} / ${f.limit}`;
+      countEl.classList.toggle('over', len > f.limit);
+    };
+    updateCount();
+    textarea.addEventListener('input', () => { listingDirty = true; updateCount(); });
+    proposedTd.append(textarea, countEl);
+
+    tr.append(fieldTd, currentTd, proposedTd);
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+}
+
+function collectProposed() {
+  const proposed = {};
+  for (const textarea of document.querySelectorAll('#listing-table textarea[data-field]')) {
+    proposed[textarea.dataset.field] = textarea.value;
+  }
+  return proposed;
 }
 
 document.getElementById('auto-capture-all-btn').onclick = () => autoCapture(null);
@@ -691,28 +789,40 @@ document.getElementById('apply-all-btn').onclick = async () => {
   fetchState();
 };
 
-document.getElementById('listing-editor').addEventListener('input', () => { listingDirty = true; });
-
 document.getElementById('save-listing-btn').onclick = async () => {
   const lang = listingLang || (currentState && currentState.current_lang);
   await fetch('/api/store-listing', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({lang, text: document.getElementById('listing-editor').value}),
+    body: JSON.stringify({lang, proposed: collectProposed()}),
   });
   listingDirty = false;
+  await loadListing(lang);
   fetchState();
 };
 
 document.getElementById('generate-listing-btn').onclick = async () => {
   const lang = listingLang || (currentState && currentState.current_lang);
-  if (!confirm(`Ask Claude to draft store listing copy for '${lang}'? This overwrites the text currently in the editor.`)) return;
+  if (!confirm(`Ask Claude to draft proposed listing copy for '${lang}'? This overwrites the proposed text currently shown.`)) return;
+  listingDirty = false;
+  listingPendingReload = true;
   await fetch('/api/generate-store-listing', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({lang}),
   });
-  listingDirty = false;
+  fetchState();
+};
+
+document.getElementById('fetch-listing-btn').onclick = async () => {
+  const lang = listingLang || (currentState && currentState.current_lang);
+  if (!confirm(`Fetch the currently-live listing copy for '${lang}' from App Store Connect / Play Console? This refreshes "Current" only — your proposed text is untouched.`)) return;
+  listingPendingReload = true;
+  await fetch('/api/fetch-listing', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({lang}),
+  });
   fetchState();
 };
 

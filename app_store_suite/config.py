@@ -15,6 +15,16 @@ class AppConfig:
     # chronal://<route>. Required only for `auto-capture` — see ShotConfig.
     deep_link_scheme: str | None = None
 
+    # Store identifiers + credentials, required only for `fetch-listing` (pulling
+    # the currently-live listing copy from App Store Connect / Play Console).
+    # Reuse whatever credentials the app's own Fastfile already uses for shipping.
+    bundle_id: str | None = None  # iOS app_identifier
+    asc_key_id: str | None = None
+    asc_issuer_id: str | None = None
+    asc_key_path: Path | None = None  # .p8 file
+    android_package_name: str | None = None
+    play_json_key: Path | None = None  # service account json
+
 
 @dataclass
 class DeviceConfig:
@@ -73,6 +83,10 @@ class StudioConfig:
     config_path: Path
     languages: list[str] = field(default_factory=lambda: ["en"])
     shots: list[ShotConfig] = field(default_factory=list)
+    # Maps our language code -> store-specific locale code, e.g. {"en": "en-US"}.
+    # Only needed where they differ; unmapped languages are tried as-is first, then
+    # against a few common variants (see store_listing.py's _resolve_locale).
+    store_locales: dict[str, str] = field(default_factory=dict)
 
     def deep_link(self, route: str) -> str:
         if not self.app.deep_link_scheme:
@@ -115,7 +129,7 @@ class StudioConfig:
         return self.lang_dir(lang) / "feature_graphic.png"
 
     def store_listing_path(self, lang: str) -> Path:
-        return self.lang_dir(lang) / "store_listing.md"
+        return self.lang_dir(lang) / "store_listing.json"
 
 
 def load_config(path: str | Path) -> StudioConfig:
@@ -126,11 +140,25 @@ def load_config(path: str | Path) -> StudioConfig:
     flutter_dir = Path(app_raw.get("flutter_dir", ".")).expanduser()
     if not flutter_dir.is_absolute():
         flutter_dir = (path.parent / flutter_dir).resolve()
+
+    def _resolve(key: str) -> Path | None:
+        raw_value = app_raw.get(key)
+        if not raw_value:
+            return None
+        value = Path(raw_value).expanduser()
+        return value if value.is_absolute() else (flutter_dir / value).resolve()
+
     app = AppConfig(
         name=app_raw["name"],
         flutter_dir=flutter_dir,
         icon_source=flutter_dir / app_raw["icon_source"],
         deep_link_scheme=app_raw.get("deep_link_scheme"),
+        bundle_id=app_raw.get("bundle_id"),
+        asc_key_id=app_raw.get("asc_key_id"),
+        asc_issuer_id=app_raw.get("asc_issuer_id"),
+        asc_key_path=_resolve("asc_key_path"),
+        android_package_name=app_raw.get("android_package_name"),
+        play_json_key=_resolve("play_json_key"),
     )
 
     devices: dict[str, DeviceConfig] = {}
@@ -165,6 +193,9 @@ def load_config(path: str | Path) -> StudioConfig:
         for shot_raw in raw.get("shots") or []
     ]
 
+    store_locales = raw.get("store_locales") or {}
+
     return StudioConfig(
-        app=app, devices=devices, style=style, config_path=path, languages=languages, shots=shots
+        app=app, devices=devices, style=style, config_path=path, languages=languages,
+        shots=shots, store_locales=store_locales,
     )

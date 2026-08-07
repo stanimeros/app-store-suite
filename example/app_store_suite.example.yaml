@@ -17,8 +17,25 @@ app:
   # router that lands on the target screen with sample/mock data already loaded
   # (no login, no live network calls). See README's "Auto-capture requirements".
 
+  # Required only for `fetch-listing` (pulling the currently-live listing copy
+  # from App Store Connect / Play Console). Reuse whatever credentials your own
+  # Fastfile already uses for shipping — same key files, same IDs. Paths below
+  # are relative to flutter_dir.
+  # bundle_id: com.yourcompany.yourapp
+  # asc_key_id: XXXXXXXXXX
+  # asc_issuer_id: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+  # asc_key_path: keys/AuthKey_XXXXXXXXXX.p8
+  # android_package_name: com.yourcompany.yourapp
+  # play_json_key: keys/your-service-account.json
+
 languages:
   - en # first language is the default
+
+# App Store Connect / Play Console locale codes, if they differ from the codes
+# above (e.g. "en" here vs "en-US" on the stores). Unmapped languages are tried
+# as-is first, then a few common variants.
+# store_locales:
+#   en: en-US
 
 devices:
   ios_phone:

@@ -16,7 +16,7 @@ from .config import load_config
 from .feature_graphic import generate_feature_graphic
 from .frames import fetch as frames_fetch
 from .icons import generate_play_store_icon
-from .store_listing import generate_store_listing
+from .store_listing import fetch_current_listing, generate_store_listing
 from .style_preview import generate_previews
 from .style_variants import VARIANTS
 
@@ -136,7 +136,14 @@ def cmd_store_listing(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
     lang = args.lang or cfg.default_language
     dest = generate_store_listing(cfg, lang)
-    print(f"Store listing copy written to {dest}")
+    print(f"Store listing 'proposed' copy written to {dest}")
+
+
+def cmd_fetch_listing(args: argparse.Namespace) -> None:
+    cfg = load_config(args.config)
+    lang = args.lang or cfg.default_language
+    dest = fetch_current_listing(cfg, lang)
+    print(f"Store listing 'current' copy fetched into {dest}")
 
 
 def cmd_translate_titles(args: argparse.Namespace) -> None:
@@ -240,11 +247,19 @@ def main(argv: list[str] | None = None) -> None:
     p_fg.set_defaults(func=cmd_feature_graphic)
 
     p_listing = sub.add_parser(
-        "store-listing", help="Generate Google Play / App Store listing copy via the claude CLI"
+        "store-listing", help="Draft 'proposed' Google Play / App Store listing copy via the claude CLI"
     )
     p_listing.add_argument("--config", required=True)
     p_listing.add_argument("--lang", help="Language folder to write into (defaults to the first configured language)")
     p_listing.set_defaults(func=cmd_store_listing)
+
+    p_fetch_listing = sub.add_parser(
+        "fetch-listing",
+        help="Fetch the currently-live listing copy from App Store Connect / Play Console into 'current'",
+    )
+    p_fetch_listing.add_argument("--config", required=True)
+    p_fetch_listing.add_argument("--lang", help="Language to fetch (defaults to the first configured language)")
+    p_fetch_listing.set_defaults(func=cmd_fetch_listing)
 
     p_translate = sub.add_parser(
         "translate-titles", help="Translate one language's shot titles/subtitles into another via the claude CLI"

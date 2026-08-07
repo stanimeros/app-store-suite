@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 from . import titles_store
@@ -40,63 +43,19 @@ PROMPT_TEMPLATE = (
     "and ios_description may repeat the same text."
 )
 
-_TEMPLATE = """\
-# {app_name} — Store Listing Copy
-
-Draft copy for the Google Play Console and App Store Connect listing forms.
-Character counts are shown against each field's limit — edit freely, just keep an eye on the limits if you change the wording.
-
-## Google Play
-
-**App name** — {play_app_name[count]} / {play_app_name[limit]}
-```
-{play_app_name[text]}
-```
-
-**Short description** — {play_short_description[count]} / {play_short_description[limit]}
-```
-{play_short_description[text]}
-```
-
-**Full description** — {play_full_description[count]} / {play_full_description[limit]}
-```
-{play_full_description[text]}
-```
-
-## App Store (iOS)
-
-**App name** — {ios_app_name[count]} / {ios_app_name[limit]}
-```
-{ios_app_name[text]}
-```
-
-**Subtitle** — {ios_subtitle[count]} / {ios_subtitle[limit]}
-```
-{ios_subtitle[text]}
-```
-
-**Promotional text** — {ios_promotional_text[count]} / {ios_promotional_text[limit]}
-```
-{ios_promotional_text[text]}
-```
-
-**Keywords** — {ios_keywords[count]} / {ios_keywords[limit]} (comma-separated, no spaces after commas — spaces count toward the limit)
-```
-{ios_keywords[text]}
-```
-
-**Description** — {ios_description[count]} / {ios_description[limit]}
-```
-{ios_description[text]}
-```
-
----
-
-Notes:
-- Neither store's copy names a specific sign-in provider, consistent with the screenshot subtitles.
-- Google Play's full description supports basic text only (no markdown); paste the text between the code fences as-is.
-- App Store keywords are not shown to users — they're only used for search indexing.
-"""
+# Field -> filename downloaded by `fastlane deliver`/`fastlane supply` for current listing copy.
+_IOS_METADATA_FILES = {
+    "ios_app_name": "name.txt",
+    "ios_subtitle": "subtitle.txt",
+    "ios_promotional_text": "promotional_text.txt",
+    "ios_keywords": "keywords.txt",
+    "ios_description": "description.txt",
+}
+_ANDROID_METADATA_FILES = {
+    "play_app_name": "title.txt",
+    "play_short_description": "short_description.txt",
+    "play_full_description": "full_description.txt",
+}
 
 
 def _parse_response(raw: str) -> dict:
@@ -110,10 +69,42 @@ def _parse_response(raw: str) -> dict:
     return data
 
 
+def load_listing(cfg: StudioConfig, lang: str) -> dict[str, dict]:
+    """{field: {"current": str, "proposed": str, "count": int, "limit": int}}"""
+    path = cfg.store_listing_path(lang)
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text())
+
+
+def _save_listing(cfg: StudioConfig, lang: str, listing: dict[str, dict]) -> Path:
+    dest = cfg.store_listing_path(lang)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(listing, indent=2, ensure_ascii=False))
+    return dest
+
+
+def save_proposed(cfg: StudioConfig, lang: str, proposed: dict[str, str]) -> Path:
+    """Saves hand-edited "proposed" text (e.g. from the web UI), preserving "current"."""
+    existing = load_listing(cfg, lang)
+    listing = dict(existing)
+    for key, limit in _FIELDS:
+        text = proposed.get(key, existing.get(key, {}).get("proposed", ""))
+        listing[key] = {
+            "current": existing.get(key, {}).get("current", ""),
+            "proposed": text,
+            "count": len(text),
+            "limit": limit,
+        }
+    return _save_listing(cfg, lang, listing)
+
+
 _MAX_ATTEMPTS = 4
 
 
 def generate_store_listing(cfg: StudioConfig, lang: str, timeout: float = 180) -> Path:
+    """Drafts "proposed" copy via the `claude` CLI, preserving any "current" values
+    already pulled from the stores by `fetch_current_listing`."""
     shots = titles_store.load_titles(cfg, lang)
     if not shots:
         raise TitleSuggestionError(
@@ -127,7 +118,7 @@ def generate_store_listing(cfg: StudioConfig, lang: str, timeout: float = 180) -
         shots_json=json.dumps(shots, ensure_ascii=False, indent=2),
     )
 
-    fields: dict | None = None
+    data: dict | None = None
     over_limit: list[str] = []
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         data = _parse_response(run_claude_text(prompt, timeout))
@@ -135,17 +126,14 @@ def generate_store_listing(cfg: StudioConfig, lang: str, timeout: float = 180) -
         # Character counts are computed here in Python, never trusted from the model —
         # some languages (e.g. Greek) run longer per word than the model expects, so it
         # reliably overshoots tight limits like the 30-char iOS subtitle.
-        fields = {
-            key: {"text": data[key], "count": len(data[key]), "limit": limit}
-            for key, limit in _FIELDS
-        }
-        over_limit = [key for key, f in fields.items() if f["count"] > f["limit"]]
+        counts = {key: len(data[key]) for key, _ in _FIELDS}
+        over_limit = [key for key, limit in _FIELDS if counts[key] > limit]
         if not over_limit:
             break
 
+        limits = dict(_FIELDS)
         overage = "; ".join(
-            f"{key}: {fields[key]['count']} chars, limit is {fields[key]['limit']} — "
-            f"shorten by at least {fields[key]['count'] - fields[key]['limit']}"
+            f"{key}: {counts[key]} chars, limit is {limits[key]} — shorten by at least {counts[key] - limits[key]}"
             for key in over_limit
         )
         prompt = (
@@ -156,15 +144,158 @@ def generate_store_listing(cfg: StudioConfig, lang: str, timeout: float = 180) -
             f"response was: {json.dumps(data, ensure_ascii=False)}"
         )
     else:
+        limits = dict(_FIELDS)
+        counts = {key: len(data[key]) for key, _ in _FIELDS}
         raise TitleSuggestionError(
             f"Could not get response under character limits after {_MAX_ATTEMPTS} attempts, "
             "still over on: "
-            + ", ".join(f"{key} ({fields[key]['count']}/{fields[key]['limit']})" for key in over_limit)
+            + ", ".join(f"{key} ({counts[key]}/{limits[key]})" for key in over_limit)
         )
 
-    markdown = _TEMPLATE.format(app_name=cfg.app.name, **fields)
+    existing = load_listing(cfg, lang)
+    listing = {
+        key: {
+            "current": existing.get(key, {}).get("current", ""),
+            "proposed": data[key],
+            "count": len(data[key]),
+            "limit": limit,
+        }
+        for key, limit in _FIELDS
+    }
+    return _save_listing(cfg, lang, listing)
 
-    dest = cfg.store_listing_path(lang)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(markdown)
-    return dest
+
+class FetchListingError(RuntimeError):
+    pass
+
+
+def _run(cmd: list[str], cwd: Path) -> None:
+    result = subprocess.run(cmd, cwd=cwd, stdin=subprocess.DEVNULL, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise FetchListingError(
+            f"command failed ({result.returncode}): {' '.join(cmd)}\n{result.stderr or result.stdout}"
+        )
+
+
+def _resolve_locale(base_dir: Path, lang: str, override: str | None) -> str | None:
+    """Tries override first (if given — useful when the two stores use different
+    codes for the same language, e.g. Play's "el-GR" vs App Store Connect's plain
+    "el"), then the language code as-is, then a few common variants."""
+    candidates = ([override] if override else []) + [lang]
+    if lang == "en":
+        candidates += ["en-US", "en-GB", "en-AU"]
+    for candidate in candidates:
+        if candidate and (base_dir / candidate).is_dir():
+            return candidate
+    return None
+
+
+def _read_fields(locale_dir: Path, file_map: dict[str, str]) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for field, filename in file_map.items():
+        file_path = locale_dir / filename
+        if file_path.exists():
+            values[field] = file_path.read_text().strip()
+    return values
+
+
+def fetch_current_listing(cfg: StudioConfig, lang: str, timeout: float = 180) -> Path:
+    """Downloads the currently-live listing copy from App Store Connect (via
+    `fastlane deliver`) and/or Play Console (via `fastlane supply`) and merges it
+    into this language's "current" values, leaving "proposed" untouched."""
+    app = cfg.app
+    has_ios = bool(app.bundle_id and app.asc_key_id and app.asc_issuer_id and app.asc_key_path)
+    has_android = bool(app.android_package_name and app.play_json_key)
+    if not has_ios and not has_android:
+        raise FetchListingError(
+            "No store credentials configured (bundle_id/asc_key_id/asc_issuer_id/asc_key_path "
+            "for iOS, android_package_name/play_json_key for Android) — see the example config's "
+            "'Required only for fetch-listing' section."
+        )
+
+    fetched: dict[str, str] = {}
+    override = cfg.store_locales.get(lang)
+
+    # `deliver`/`supply` dump dozens of per-field .txt files (most unused by us) into
+    # the app's own repo as a scratch working dir. Our JSON is the source of truth, so
+    # once we've read what we need, remove this dir again — unless it already existed
+    # before this call (e.g. the app genuinely uses it for its own metadata uploads).
+    metadata_dir = app.flutter_dir / "fastlane" / "metadata"
+    preexisting = metadata_dir.is_dir()
+
+    try:
+        _fetch_into(app, lang, override, has_ios, has_android, fetched)
+    finally:
+        if not preexisting and metadata_dir.is_dir():
+            shutil.rmtree(metadata_dir)
+
+    existing = load_listing(cfg, lang)
+    listing = dict(existing)
+    for key, limit in _FIELDS:
+        prior = existing.get(key, {})
+        listing[key] = {
+            "current": fetched.get(key, prior.get("current", "")),
+            "proposed": prior.get("proposed", ""),
+            "count": len(prior.get("proposed", "")),
+            "limit": limit,
+        }
+    return _save_listing(cfg, lang, listing)
+
+
+def _fetch_into(
+    app, lang: str, override: str | None, has_ios: bool, has_android: bool, fetched: dict[str, str],
+) -> None:
+    if has_ios:
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump(
+                {
+                    "key_id": app.asc_key_id,
+                    "issuer_id": app.asc_issuer_id,
+                    "key": app.asc_key_path.read_text(),
+                    "in_house": False,
+                },
+                f,
+            )
+            api_key_path = f.name
+        try:
+            _run(
+                [
+                    "bundle", "exec", "fastlane", "deliver", "download_metadata",
+                    "--app_identifier", app.bundle_id,
+                    "--api_key_path", api_key_path,
+                    "--force",
+                ],
+                cwd=app.flutter_dir,
+            )
+        finally:
+            Path(api_key_path).unlink(missing_ok=True)
+
+        metadata_root = app.flutter_dir / "fastlane" / "metadata"
+        locale = _resolve_locale(metadata_root, lang, override)
+        if locale is None:
+            available = sorted(p.name for p in metadata_root.iterdir()) if metadata_root.is_dir() else []
+            raise FetchListingError(
+                f"No App Store Connect locale matched '{lang}' under {metadata_root} "
+                f"(available: {available or 'none downloaded'}) — set store_locales.{lang} in the config."
+            )
+        fetched.update(_read_fields(metadata_root / locale, _IOS_METADATA_FILES))
+
+    if has_android:
+        _run(
+            [
+                "bundle", "exec", "fastlane", "supply", "init",
+                "--package_name", app.android_package_name,
+                "--json_key", str(app.play_json_key),
+            ],
+            cwd=app.flutter_dir,
+        )
+
+        metadata_root = app.flutter_dir / "fastlane" / "metadata" / "android"
+        locale = _resolve_locale(metadata_root, lang, override)
+        if locale is None:
+            available = sorted(p.name for p in metadata_root.iterdir()) if metadata_root.is_dir() else []
+            raise FetchListingError(
+                f"No Play Console locale matched '{lang}' under {metadata_root} "
+                f"(available: {available or 'none downloaded'}) — set store_locales.{lang} in the config."
+            )
+        fetched.update(_read_fields(metadata_root / locale, _ANDROID_METADATA_FILES))

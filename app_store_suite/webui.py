@@ -9,7 +9,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, request, send_file
 
-from . import ship, shots, style_choices, titles_store
+from . import ship, shots, store_listing, style_choices, titles_store
 from .autocapture import run_auto_capture
 from .compose import compose_all
 from .config import StudioConfig
@@ -202,29 +202,47 @@ class Studio:
             with self.lock:
                 self.busy = False
 
-    def get_store_listing(self, lang: str) -> str:
-        path = self.cfg.store_listing_path(lang)
-        return path.read_text() if path.exists() else ""
+    def get_store_listing(self, lang: str) -> dict:
+        return store_listing.load_listing(self.cfg, lang)
 
-    def save_store_listing(self, lang: str, text: str) -> None:
-        path = self.cfg.store_listing_path(lang)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text)
-        self._set_status(f"Saved store listing ({lang})")
+    def save_store_listing(self, lang: str, proposed: dict[str, str]) -> None:
+        store_listing.save_proposed(self.cfg, lang, proposed)
+        self._set_status(f"Saved proposed listing copy ({lang})")
 
     def generate_listing(self, lang: str) -> None:
         with self.lock:
             if self.busy:
                 return
             self.busy = True
-            self.status = f"Asking claude for store listing copy ({lang})..."
+            self.status = f"Asking claude for proposed listing copy ({lang})..."
         threading.Thread(target=self._generate_listing_worker, args=(lang,), daemon=True).start()
 
     def _generate_listing_worker(self, lang: str) -> None:
         try:
             dest = generate_store_listing(self.cfg, lang)
             with self.lock:
-                self.status = f"Store listing copy written to {dest}"
+                self.status = f"Proposed listing copy written to {dest}"
+                self.error = None
+        except Exception as exc:  # noqa: BLE001
+            with self.lock:
+                self.error = str(exc)
+        finally:
+            with self.lock:
+                self.busy = False
+
+    def fetch_listing(self, lang: str) -> None:
+        with self.lock:
+            if self.busy:
+                return
+            self.busy = True
+            self.status = f"Fetching current listing copy from the stores ({lang})..."
+        threading.Thread(target=self._fetch_listing_worker, args=(lang,), daemon=True).start()
+
+    def _fetch_listing_worker(self, lang: str) -> None:
+        try:
+            dest = store_listing.fetch_current_listing(self.cfg, lang)
+            with self.lock:
+                self.status = f"Current listing copy fetched into {dest}"
                 self.error = None
         except Exception as exc:  # noqa: BLE001
             with self.lock:
@@ -340,17 +358,22 @@ def create_app(cfg: StudioConfig) -> Flask:
     @app.get("/api/store-listing")
     def get_store_listing_route():
         lang = request.args.get("lang", studio.current_lang)
-        return jsonify({"lang": lang, "text": studio.get_store_listing(lang)})
+        return jsonify({"lang": lang, "fields": studio.get_store_listing(lang)})
 
     @app.post("/api/store-listing")
     def save_store_listing_route():
         data = request.json
-        studio.save_store_listing(data["lang"], data["text"])
+        studio.save_store_listing(data["lang"], data["proposed"])
         return jsonify({"ok": True})
 
     @app.post("/api/generate-store-listing")
     def generate_store_listing_route():
         studio.generate_listing(request.json.get("lang") or studio.current_lang)
+        return jsonify({"ok": True})
+
+    @app.post("/api/fetch-listing")
+    def fetch_listing_route():
+        studio.fetch_listing(request.json.get("lang") or studio.current_lang)
         return jsonify({"ok": True})
 
     @app.post("/api/ship")
