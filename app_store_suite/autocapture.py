@@ -11,11 +11,24 @@ class AutoCaptureError(RuntimeError):
     pass
 
 
-def run_auto_capture(cfg: StudioConfig, only_device: str | None = None, render_delay: float = 2.0) -> None:
+def run_auto_capture(
+    cfg: StudioConfig,
+    only_device: str | None = None,
+    render_delay: float = 2.0,
+    lang: str | None = None,
+) -> None:
     """Unattended capture: for every configured shot, opens its deep link and
     screenshots the result — no navigation, no typing a shot name. Requires
     app.deep_link_scheme and a shots: list in the config (see README's
     "Auto-capture requirements" section for what the app itself must expose).
+
+    Pass `lang` for apps that support switching the in-app language via a
+    `lang` deep-link query param (the app's own debug router decides what to
+    do with it — see README's "Auto-capture requirements"): it's appended to
+    every shot's URL as `?lang=<lang>` (or `&lang=<lang>` if the route already
+    has a query string), raw screenshots are saved under `raw/<lang>/<device>/`
+    instead of the shared `raw/<device>/`, and suggested shot titles are
+    saved/read against that same language instead of always `cfg.default_language`.
     """
     if not cfg.shots:
         raise AutoCaptureError(
@@ -27,19 +40,24 @@ def run_auto_capture(cfg: StudioConfig, only_device: str | None = None, render_d
         )
 
     devices = {only_device: cfg.devices[only_device]} if only_device else cfg.devices
-    lang = cfg.default_language
-    existing_titles = titles_store.load_titles(cfg, lang)
+    titles_lang = lang or cfg.default_language
+    existing_titles = titles_store.load_titles(cfg, titles_lang)
+    raw_base = cfg.raw_dir_for(lang)
 
     for key, device in devices.items():
         print(f"\n=== {key} ({device.identifier}) ===")
         with device_session(cfg, key, device) as (take_screenshot, open_url):
             for shot in cfg.shots:
-                url = cfg.deep_link(shot.route)
+                route = shot.route
+                if lang is not None:
+                    sep = "&" if "?" in route else "?"
+                    route = f"{route}{sep}lang={lang}"
+                url = cfg.deep_link(route)
                 print(f"[{key}] {shot.id}: opening {url}")
                 open_url(url)
                 time.sleep(render_delay)
 
-                dest = cfg.raw_dir / key / f"{shot.id}.png"
+                dest = raw_base / key / f"{shot.id}.png"
                 take_screenshot(dest)
                 print(f"  saved {dest}")
 
@@ -47,11 +65,11 @@ def run_auto_capture(cfg: StudioConfig, only_device: str | None = None, render_d
                     continue
                 try:
                     print("  asking claude for a title...")
-                    suggestion = ai_titles.suggest_title(dest, cfg.app.name, lang=lang)
+                    suggestion = ai_titles.suggest_title(dest, cfg.app.name, lang=titles_lang)
                     titles_store.save_title(
-                        cfg, lang, shot.id, suggestion["title"], suggestion.get("subtitle", "")
+                        cfg, titles_lang, shot.id, suggestion["title"], suggestion.get("subtitle", "")
                     )
                     existing_titles[shot.id] = suggestion
                     print(f"  title: {suggestion['title']!r}  subtitle: {suggestion.get('subtitle', '')!r}")
                 except ai_titles.TitleSuggestionError as exc:
-                    print(f"  WARNING: title suggestion failed ({exc}); edit {cfg.titles_path(lang)} manually")
+                    print(f"  WARNING: title suggestion failed ({exc}); edit {cfg.titles_path(titles_lang)} manually")

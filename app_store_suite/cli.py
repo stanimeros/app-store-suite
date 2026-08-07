@@ -81,7 +81,7 @@ def cmd_setup(args: argparse.Namespace) -> None:
 
 def cmd_auto_capture(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
-    run_auto_capture(cfg, only_device=args.device, render_delay=args.render_delay)
+    run_auto_capture(cfg, only_device=args.device, render_delay=args.render_delay, lang=args.lang)
 
 
 def cmd_ui(args: argparse.Namespace) -> None:
@@ -263,6 +263,13 @@ def main(argv: list[str] | None = None) -> None:
     p_auto.add_argument("--device", help="Only capture this device key from the config")
     p_auto.add_argument(
         "--render-delay", type=float, default=2.0, help="Seconds to wait after opening a deep link before screenshotting"
+    )
+    p_auto.add_argument(
+        "--lang",
+        help="For apps whose deep-link routes switch the in-app language per capture (e.g. "
+        "shot routes ending in ?lang=el): saves raw screenshots under raw/<lang>/<device>/ "
+        "instead of the shared raw/<device>/, and suggested titles against this language "
+        "instead of the config's default",
     )
     p_auto.set_defaults(func=cmd_auto_capture)
 

@@ -111,6 +111,13 @@ class StudioConfig:
         whatever locale the device happened to be running in during capture)."""
         return self.output_dir / "raw"
 
+    def raw_dir_for(self, lang: str | None) -> Path:
+        """Language-scoped raw captures, for apps whose deep-link routes switch the
+        in-app language per capture (e.g. `?lang=el`) — each language's raw shots are
+        kept apart under `raw/<lang>/` instead of overwriting the shared `raw_dir`.
+        Falls back to the plain `raw_dir` when `lang` is None."""
+        return self.raw_dir if lang is None else self.raw_dir / lang
+
     @property
     def icon_path(self) -> Path:
         """Play Store app icon — no text rendered on it, so it isn't per-language."""

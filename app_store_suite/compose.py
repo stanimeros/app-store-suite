@@ -463,8 +463,10 @@ def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) ->
     devices = {only_device: cfg.devices[only_device]} if only_device else cfg.devices
     titles = titles_store.load_titles(cfg, lang)
     outputs: list[Path] = []
+    lang_raw_dir = cfg.raw_dir_for(lang)
+    raw_root = lang_raw_dir if lang_raw_dir.exists() else cfg.raw_dir
     for device_key, device in devices.items():
-        device_raw_dir = cfg.raw_dir / device_key
+        device_raw_dir = raw_root / device_key
         if not device_raw_dir.exists():
             continue
         for raw_path in sorted(device_raw_dir.glob("*.png")):
