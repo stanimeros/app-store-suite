@@ -164,8 +164,8 @@
   .btn, .remove-btn { display: inline-flex; align-items: center; gap: 6px; }
   .icon { width: 14px; height: 14px; flex-shrink: 0; }
   .lang-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-  .lang-row label { font-size: 12px; color: var(--muted); font-weight: 600; }
-  .lang-row select {
+  .lang-row label, .apply-all-row label { font-size: 12px; color: var(--muted); font-weight: 600; }
+  select {
     border: 1px solid var(--border);
     background: var(--bg);
     color: var(--text);
@@ -175,7 +175,15 @@
     font-weight: 600;
     cursor: pointer;
   }
-  .lang-row select:disabled { opacity: 0.5; cursor: default; }
+  select:disabled { opacity: 0.5; cursor: default; }
+  .apply-all-row { display: flex; align-items: center; gap: 8px; }
+  select.style-select {
+    width: 100%;
+    margin-top: 4px;
+    font-weight: 400;
+    font-size: 11px;
+    padding: 4px 6px;
+  }
 
   .tabs { display: flex; gap: 4px; margin-top: 14px; }
   .tab-btn {
@@ -286,8 +294,13 @@
       </button>
       <button class="btn" id="randomize-style-btn">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"></path><path d="M4 20 21 3"></path><path d="M21 16v5h-5"></path><path d="M15 15l6 6"></path><path d="M4 4l5 5"></path></svg>
-        Regenerate with random style
+        Random style per shot
       </button>
+      <div class="apply-all-row">
+        <label for="apply-all-select">Same style for all:</label>
+        <select id="apply-all-select"></select>
+        <button class="btn" id="apply-all-btn">Apply to all</button>
+      </div>
     </div>
     <main>
       <div class="gallery" id="preview-gallery"></div>
@@ -388,6 +401,14 @@ function buildDevices(state) {
   }
   langSelect.value = state.current_lang;
   langSelect.onchange = () => selectLanguage(langSelect.value);
+
+  const applyAllSelect = document.getElementById('apply-all-select');
+  for (const variant of state.style_variants) {
+    const opt = document.createElement('option');
+    opt.value = variant;
+    opt.textContent = variant;
+    applyAllSelect.appendChild(opt);
+  }
 
   const devicesEl = document.getElementById('devices');
   const head = document.getElementById('matrix-head');
@@ -526,6 +547,8 @@ function patch(state) {
   document.getElementById('compose-btn').disabled = state.busy;
   document.getElementById('compose-btn-2').disabled = state.busy;
   document.getElementById('randomize-style-btn').disabled = state.busy;
+  document.getElementById('apply-all-btn').disabled = state.busy;
+  document.getElementById('apply-all-select').disabled = state.busy;
   document.getElementById('ship-ios-btn').disabled = state.busy;
   document.getElementById('ship-android-btn').disabled = state.busy;
 
@@ -558,8 +581,25 @@ function renderPreviewGallery(state) {
       img.src = `/api/store/${state.current_lang}/${key}/${shot.id}.png?t=${Date.now()}`;
       const caption = document.createElement('div');
       caption.className = 'caption';
-      caption.textContent = shot.style_variant ? `${shot.id} (${shot.style_variant})` : shot.id;
-      item.append(img, caption);
+      caption.textContent = shot.id;
+
+      const styleSelect = document.createElement('select');
+      styleSelect.className = 'style-select';
+      styleSelect.disabled = state.busy;
+      const defaultOpt = document.createElement('option');
+      defaultOpt.value = '';
+      defaultOpt.textContent = 'config default';
+      styleSelect.appendChild(defaultOpt);
+      for (const variant of state.style_variants) {
+        const opt = document.createElement('option');
+        opt.value = variant;
+        opt.textContent = variant;
+        styleSelect.appendChild(opt);
+      }
+      styleSelect.value = shot.style_variant || '';
+      styleSelect.onchange = () => setStyle(shot.id, styleSelect.value);
+
+      item.append(img, caption, styleSelect);
       row.appendChild(item);
     }
     group.append(h3, row);
@@ -628,6 +668,26 @@ document.getElementById('compose-btn-2').onclick = async () => {
 document.getElementById('randomize-style-btn').onclick = async () => {
   if (!confirm('Assign a random style to every captured shot and recompose? This overrides any style-pick choices already made.')) return;
   await fetch('/api/randomize-style', {method: 'POST'});
+  fetchState();
+};
+
+async function setStyle(shotId, variant) {
+  await fetch('/api/set-style', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({shot_id: shotId, variant}),
+  });
+  fetchState();
+}
+
+document.getElementById('apply-all-btn').onclick = async () => {
+  const variant = document.getElementById('apply-all-select').value;
+  if (!confirm(`Apply the '${variant}' style to every captured shot and recompose?`)) return;
+  await fetch('/api/set-style-all', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({variant}),
+  });
   fetchState();
 };
 

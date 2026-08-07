@@ -150,6 +150,58 @@ class Studio:
             with self.lock:
                 self.busy = False
 
+    def set_style(self, shot_id: str, variant: str | None) -> None:
+        with self.lock:
+            if self.busy:
+                return
+            self.busy = True
+            lang = self.current_lang
+            self.status = f"Setting style for '{shot_id}'..."
+        threading.Thread(target=self._set_style_worker, args=(lang, shot_id, variant), daemon=True).start()
+
+    def _set_style_worker(self, lang: str, shot_id: str, variant: str | None) -> None:
+        try:
+            if variant:
+                style_choices.save_choice(self.cfg, shot_id, variant)
+            else:
+                style_choices.clear_choice(self.cfg, shot_id)
+            outputs = compose_all(self.cfg, lang, only_device=None)
+            with self.lock:
+                self.status = f"Recomposed {len(outputs)} image(s)"
+                self.error = None
+        except Exception as exc:  # noqa: BLE001
+            with self.lock:
+                self.error = str(exc)
+        finally:
+            with self.lock:
+                self.busy = False
+
+    def set_style_all(self, variant: str) -> None:
+        with self.lock:
+            if self.busy:
+                return
+            self.busy = True
+            lang = self.current_lang
+            self.status = f"Applying '{variant}' style to every shot..."
+        threading.Thread(target=self._set_style_all_worker, args=(lang, variant), daemon=True).start()
+
+    def _set_style_all_worker(self, lang: str, variant: str) -> None:
+        try:
+            for shot_id in shots.discover_shot_ids(self.cfg):
+                style_choices.save_choice(self.cfg, shot_id, variant)
+            with self.lock:
+                self.status = "Recomposing..."
+            outputs = compose_all(self.cfg, lang)
+            with self.lock:
+                self.status = f"Recomposed {len(outputs)} image(s) with '{variant}' style"
+                self.error = None
+        except Exception as exc:  # noqa: BLE001
+            with self.lock:
+                self.error = str(exc)
+        finally:
+            with self.lock:
+                self.busy = False
+
     def get_store_listing(self, lang: str) -> str:
         path = self.cfg.store_listing_path(lang)
         return path.read_text() if path.exists() else ""
@@ -273,6 +325,16 @@ def create_app(cfg: StudioConfig) -> Flask:
     @app.post("/api/randomize-style")
     def randomize_style_route():
         studio.randomize_style()
+        return jsonify({"ok": True})
+
+    @app.post("/api/set-style")
+    def set_style_route():
+        studio.set_style(request.json["shot_id"], request.json.get("variant") or None)
+        return jsonify({"ok": True})
+
+    @app.post("/api/set-style-all")
+    def set_style_all_route():
+        studio.set_style_all(request.json["variant"])
         return jsonify({"ok": True})
 
     @app.get("/api/store-listing")
