@@ -17,6 +17,7 @@ from .feature_graphic import generate_feature_graphic
 from .frames import fetch as frames_fetch
 from .icons import generate_play_store_icon
 from .init import scaffold_project
+from . import push as push_mod
 from .store_listing import fetch_current_listing, generate_store_listing
 from .style_preview import generate_previews
 from .style_variants import VARIANTS
@@ -234,6 +235,27 @@ def cmd_translate_arb(args: argparse.Namespace) -> None:
     print("ARB strings translated and l10n classes regenerated.")
 
 
+_PUSH_FUNCS = {
+    ("android", "metadata"): push_mod.push_android_metadata,
+    ("android", "screenshots"): push_mod.push_android_screenshots,
+    ("ios", "metadata"): push_mod.push_ios_metadata,
+    ("ios", "screenshots"): push_mod.push_ios_screenshots,
+}
+
+
+def cmd_push(args: argparse.Namespace) -> None:
+    cfg = load_config(args.config)
+    platforms = ["android", "ios"] if args.platform == "both" else [args.platform]
+    targets = ["metadata", "screenshots"] if args.what == "all" else [args.what]
+    langs = args.lang.split(",") if args.lang else None
+
+    for platform in platforms:
+        for target in targets:
+            print(f"Pushing {platform} {target}...")
+            _PUSH_FUNCS[(platform, target)](cfg, langs=langs)
+    print("Done.")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="appstoresuite", description="Store-asset automation for Flutter apps")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -377,6 +399,20 @@ def main(argv: list[str] | None = None) -> None:
         "Defaults to app-store-suite's own vendored copy if arb_translate isn't already on PATH.",
     )
     p_translate_arb.set_defaults(func=cmd_translate_arb)
+
+    p_push = sub.add_parser(
+        "push",
+        help="Push 'proposed' listing copy and/or composed screenshots live to Play Console / "
+        "App Store Connect — no APK/AAB/IPA build or binary upload, ever (use ship-android/"
+        "ship-ios for that)",
+    )
+    p_push.add_argument("--config", required=True)
+    p_push.add_argument("--platform", choices=["android", "ios", "both"], default="both")
+    p_push.add_argument("--what", choices=["metadata", "screenshots", "all"], default="all")
+    p_push.add_argument(
+        "--lang", help="Comma-separated language codes to push (defaults to all configured languages)"
+    )
+    p_push.set_defaults(func=cmd_push)
 
     args = parser.parse_args(argv)
     args.func(args)

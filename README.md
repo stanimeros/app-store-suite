@@ -67,6 +67,14 @@ appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml
 appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --device ios_phone
 appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --render-delay 3
 
+# For apps whose debug router also reads a `lang` deep-link query param to switch
+# the in-app language (see "Auto-capture requirements" below): captures raw shots
+# under raw/<lang>/<device>/ instead of the shared raw/<device>/, so re-running per
+# language doesn't clobber the previous language's captures. Run once per language,
+# same devices stay booted/reused across calls if already running.
+appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --lang en
+appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --lang el
+
 # Composites .appstoresuite/raw/<device>/<shot>.png into
 # .appstoresuite/<lang>/store/<device>/<shot>.png: device bezel frame (or the
 # procedural fallback), background, and the shot's title.
@@ -149,6 +157,17 @@ generated separately per shot by `store-listing`/`translate-titles`, stored in
 Without `deep_link_scheme` + `shots:` configured, `auto-capture` refuses to run
 (fails fast with what's missing) — every other command still works.
 
+**iOS "Open in *App*?" dialog.** The iOS Simulator shows a one-time system
+confirmation sheet the first time a given app boot receives a custom-scheme
+`simctl openurl` (it doesn't distinguish a real external app/Safari from
+automation) — `auto-capture` can't dismiss it itself, so that first shot's raw
+capture will show the dialog instead of the target screen. It does not
+reappear for the rest of that app session, so either: run `auto-capture` once
+to warm up the app (ignore/discard that first shot), then run it again for a
+clean capture of everything; or open one deep link by hand first (`xcrun
+simctl openurl <udid> '<scheme>://<any-route>'`, then tap **Open** in the
+Simulator window) before running `auto-capture`.
+
 ## Listing metadata: current vs. proposed
 
 `.appstoresuite/<lang>/store_listing.json` holds one entry per field (app name,
@@ -185,6 +204,44 @@ store_locales:
 format — dozens of per-field `.txt` files); app-store-suite reads what it needs
 from there into the JSON and deletes that scratch directory again immediately,
 so it doesn't linger as clutter.
+
+## Pushing metadata and screenshots live
+
+`store-listing`/`compose` only ever write local files — nothing reaches the
+stores until you push it. `push` does that, deliberately scoped to *just*
+metadata text and/or screenshots (never a binary — use `ship-ios`/
+`ship-android` for that, and never anything you haven't reviewed locally first):
+
+```bash
+# Everything (metadata text + screenshots), both stores, all configured languages.
+appstoresuite push --config /path/to/your-app/app_store_suite.yaml
+
+# Just one platform/target/language.
+appstoresuite push --config /path/to/your-app/app_store_suite.yaml --platform android --what metadata
+appstoresuite push --config /path/to/your-app/app_store_suite.yaml --platform ios --what screenshots --lang en,el
+```
+
+`--what metadata` pushes each language's *proposed* copy from
+`store_listing.json` (see above) — draft it with `store-listing` and review it
+before pushing; nothing here asks for confirmation. `--what screenshots`
+pushes whatever `compose` last wrote to `.appstoresuite/<lang>/store/`.
+
+Requires the same store credentials as `fetch-listing` (above). Android
+tablet screenshots (any device key containing `"tablet"`) go to both Play's
+sevenInch and tenInch buckets, since a single composed image can't target
+both; iOS screenshots are auto-bucketed by App Store Connect from each
+image's pixel dimensions, so no per-device mapping is needed there.
+
+**Known fastlane bug (fastlane 2.237.0):** `push --platform ios --what
+metadata` calls `fastlane deliver`, which can crash with
+`Spaceship::ConnectAPI::Models.parse: No data` on apps that have never had an
+App Store version reviewed yet (deliver's `review_attachment_file` step fetches
+`app_store_review_detail`, which 404s and isn't rescued — unlike the identical
+case just above it in the same file, which is). Fix by patching the installed
+gem: in `deliver/lib/deliver/upload_metadata.rb`'s `review_attachment_file`,
+wrap `version.fetch_app_store_review_detail` in `begin/rescue; nil; end` and
+add `return unless app_store_review_detail` right after, mirroring the
+existing `fetch_reset_ratings_request` rescue a few lines up.
 
 ## Web control panel
 
