@@ -87,7 +87,10 @@ def translate_arb(project_dir: Path, activate_source: str | Path | None = None) 
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, _, value = line.partition("=")
-            env.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+            key = key.strip()
+            if key.startswith("export "):
+                key = key[len("export "):].strip()
+            env.setdefault(key, value.strip().strip('"').strip("'"))
 
     if not env.get("ARB_TRANSLATE_API_KEY"):
         raise ShipError("ARB_TRANSLATE_API_KEY is not set (add it to .env or export it)")

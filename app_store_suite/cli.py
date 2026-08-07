@@ -16,12 +16,34 @@ from .config import load_config
 from .feature_graphic import generate_feature_graphic
 from .frames import fetch as frames_fetch
 from .icons import generate_play_store_icon
+from .init import scaffold_project
 from .store_listing import fetch_current_listing, generate_store_listing
 from .style_preview import generate_previews
 from .style_variants import VARIANTS
 
 DEFAULT_SYSTEM_IMAGE = "system-images;android-37.0;google_apis_playstore_ps16k;arm64-v8a"
 DEFAULT_DEVICE_PROFILE = {"phone": "pixel_6", "tablet": "pixel_tablet"}
+
+
+def cmd_init(args: argparse.Namespace) -> None:
+    project_dir = Path(args.project_dir)
+    config_path = Path(args.config) if args.config else None
+    result = scaffold_project(project_dir, config_path=config_path, app_name=args.name, force=args.force)
+
+    for path in result.created:
+        print(f"  created  {path}")
+    for path in result.skipped:
+        print(f"  skipped  {path} (already exists, use --force to overwrite)")
+
+    print(
+        "\nNext steps:\n"
+        "  - Fill in app_store_suite.yaml (devices, icon_source, credentials as needed)\n"
+        "  - Add flutter_localizations + intl to pubspec.yaml and set `generate: true` "
+        "under the flutter: section, if not already there\n"
+        "  - Copy .env.example to .env and fill in ARB_TRANSLATE_API_KEY\n"
+        "  - Run `fastlane init` inside fastlane/ to wire up real Apple/Google credentials, "
+        "then fill in the ship_testflight/ship_internal lanes in fastlane/Fastfile"
+    )
 
 
 def cmd_setup(args: argparse.Namespace) -> None:
@@ -201,6 +223,15 @@ def cmd_translate_arb(args: argparse.Namespace) -> None:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="appstoresuite", description="Store-asset automation for Flutter apps")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    p_init = sub.add_parser(
+        "init", help="Scaffold a new project: app_store_suite.yaml, l10n.yaml, .env.example, fastlane skeleton"
+    )
+    p_init.add_argument("--project-dir", required=True, help="Flutter project root to scaffold into")
+    p_init.add_argument("--config", help="Where to write the config (default: <project-dir>/app_store_suite.yaml)")
+    p_init.add_argument("--name", help="App name to fill into the generated config/ARB template")
+    p_init.add_argument("--force", action="store_true", help="Overwrite files that already exist")
+    p_init.set_defaults(func=cmd_init)
 
     p_setup = sub.add_parser("setup", help="Verify tooling, create missing Android AVDs, prefetch device frames")
     p_setup.add_argument("--config", required=True)

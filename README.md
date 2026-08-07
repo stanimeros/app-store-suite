@@ -28,7 +28,15 @@ pipx upgrade app-store-suite
 
 ## Set up a new app
 
-Copy `example/app_store_suite.example.yaml` into your Flutter app's own repo root
+`appstoresuite init --project-dir /path/to/your-app --name YourApp` scaffolds the
+starter files most apps need: `app_store_suite.yaml`, `l10n.yaml` + a template
+`lib/l10n/app_en.arb`, `.env.example`, and a `fastlane/` skeleton (Fastfile with
+empty `ship_testflight`/`ship_internal` lanes + Appfile). It never overwrites an
+existing file unless you pass `--force`. Fastlane still needs `fastlane init` run
+separately per-platform to wire up real Apple/Google credentials — the generated
+Fastfile is just a lane-name-matching stub for you to fill in.
+
+Alternatively, copy `example/app_store_suite.example.yaml` into your Flutter app's own repo root
 (e.g. as `app_store_suite.yaml`, alongside `pubspec.yaml`), and fill in `app.name`,
 `icon_source`, your devices, and (if you want `auto-capture`) `deep_link_scheme` +
 `shots:` — see "Auto-capture requirements" below. `flutter_dir: .` assumes the config
