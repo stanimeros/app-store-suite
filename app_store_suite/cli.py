@@ -162,23 +162,39 @@ def cmd_translate_titles(args: argparse.Namespace) -> None:
     print(f"Wrote {len(translated)} translated title(s) to {dest}")
 
 
+def _resolve_project_dir(args: argparse.Namespace) -> Path:
+    """--project-dir wins if given; otherwise derive from --config's flutter_dir;
+    otherwise fall back to the current directory (if it looks like a Flutter project)."""
+    if args.project_dir:
+        return Path(args.project_dir)
+    if args.config:
+        return load_config(args.config).app.flutter_dir
+    cwd = Path.cwd()
+    if (cwd / "pubspec.yaml").exists():
+        return cwd
+    raise SystemExit(
+        "Couldn't determine the project directory: pass --project-dir, pass --config, "
+        "or run this from a Flutter project root (containing pubspec.yaml)."
+    )
+
+
 def cmd_bump_version(args: argparse.Namespace) -> None:
-    old, new = ship.bump_version(Path(args.project_dir))
+    old, new = ship.bump_version(_resolve_project_dir(args))
     print(f"Bumped version: {old} -> {new}")
 
 
 def cmd_ship_ios(args: argparse.Namespace) -> None:
-    ship.ship_ios(Path(args.project_dir), lane=args.lane)
+    ship.ship_ios(_resolve_project_dir(args), lane=args.lane)
     print("Uploaded to TestFlight.")
 
 
 def cmd_ship_android(args: argparse.Namespace) -> None:
-    ship.ship_android(Path(args.project_dir), lane=args.lane)
+    ship.ship_android(_resolve_project_dir(args), lane=args.lane)
     print("Uploaded to Play Store internal testing.")
 
 
 def cmd_translate_arb(args: argparse.Namespace) -> None:
-    ship.translate_arb(Path(args.project_dir), activate_source=args.activate_source)
+    ship.translate_arb(_resolve_project_dir(args), activate_source=args.activate_source)
     print("ARB strings translated and l10n classes regenerated.")
 
 
@@ -269,28 +285,36 @@ def main(argv: list[str] | None = None) -> None:
     p_translate.add_argument("--to", dest="to_lang", required=True, help="Target language code, e.g. el")
     p_translate.set_defaults(func=cmd_translate_titles)
 
+    def _add_project_dir_args(p: argparse.ArgumentParser) -> None:
+        p.add_argument(
+            "--project-dir",
+            help="Flutter project root. Defaults to --config's flutter_dir, or the "
+            "current directory if it contains pubspec.yaml.",
+        )
+        p.add_argument("--config", help="Derive --project-dir from this config's flutter_dir")
+
     p_bump = sub.add_parser("bump-version", help="Bump pubspec.yaml's PATCH and +BUILD together")
-    p_bump.add_argument("--project-dir", required=True, help="Flutter project root (contains pubspec.yaml)")
+    _add_project_dir_args(p_bump)
     p_bump.set_defaults(func=cmd_bump_version)
 
     p_ship_ios = sub.add_parser(
         "ship-ios", help="Build the ipa and upload to TestFlight via `fastlane ios <lane>`"
     )
-    p_ship_ios.add_argument("--project-dir", required=True, help="Flutter project root (contains the Fastfile)")
+    _add_project_dir_args(p_ship_ios)
     p_ship_ios.add_argument("--lane", default="ship_testflight", help="Fastlane lane name (default: ship_testflight)")
     p_ship_ios.set_defaults(func=cmd_ship_ios)
 
     p_ship_android = sub.add_parser(
         "ship-android", help="Build the App Bundle and upload to Play Store internal testing via `fastlane android <lane>`"
     )
-    p_ship_android.add_argument("--project-dir", required=True, help="Flutter project root (contains the Fastfile)")
+    _add_project_dir_args(p_ship_android)
     p_ship_android.add_argument("--lane", default="ship_internal", help="Fastlane lane name (default: ship_internal)")
     p_ship_android.set_defaults(func=cmd_ship_android)
 
     p_translate_arb = sub.add_parser(
         "translate-arb", help="Translate missing Flutter ARB strings (arb_translate) and regenerate l10n classes"
     )
-    p_translate_arb.add_argument("--project-dir", required=True, help="Flutter project root (contains pubspec.yaml)")
+    _add_project_dir_args(p_translate_arb)
     p_translate_arb.add_argument(
         "--activate-source",
         help="Override arb_translate source (absolute, or relative to --project-dir). "

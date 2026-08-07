@@ -194,8 +194,9 @@ Opens a local page (default `http://127.0.0.1:5175`) with four tabs:
 
 ## Shipping
 
-These operate directly on a Flutter project checkout (`--project-dir`), no config
-needed.
+These operate directly on a Flutter project checkout. `--project-dir` is optional:
+pass `--config` instead to derive it from that config's `flutter_dir`, or omit both
+and run from inside the Flutter project itself (detected via `pubspec.yaml`).
 
 ```bash
 # Bumps pubspec.yaml's PATCH and +BUILD together, e.g. 1.0.6+9 -> 1.0.7+10.
