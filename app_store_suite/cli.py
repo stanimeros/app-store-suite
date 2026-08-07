@@ -206,13 +206,27 @@ def cmd_bump_version(args: argparse.Namespace) -> None:
 
 
 def cmd_ship_ios(args: argparse.Namespace) -> None:
-    ship.ship_ios(_resolve_project_dir(args), lane=args.lane)
-    print("Uploaded to TestFlight.")
+    shipped = ship.ship_ios(_resolve_project_dir(args), lane=args.lane)
+    if shipped:
+        print("Uploaded to TestFlight.")
+    else:
+        print(
+            "fastlane ran 'ios ship_testflight' successfully, but its build_app/"
+            "upload_to_testflight steps are still commented out — nothing was actually "
+            "built or uploaded. Fill in fastlane/Fastfile to make this lane do real work."
+        )
 
 
 def cmd_ship_android(args: argparse.Namespace) -> None:
-    ship.ship_android(_resolve_project_dir(args), lane=args.lane)
-    print("Uploaded to Play Store internal testing.")
+    shipped = ship.ship_android(_resolve_project_dir(args), lane=args.lane)
+    if shipped:
+        print("Uploaded to Play Store internal testing.")
+    else:
+        print(
+            "fastlane ran 'android ship_internal' successfully, but its gradle/"
+            "upload_to_play_store steps are still commented out — nothing was actually "
+            "built or uploaded. Fill in fastlane/Fastfile to make this lane do real work."
+        )
 
 
 def cmd_translate_arb(args: argparse.Namespace) -> None:

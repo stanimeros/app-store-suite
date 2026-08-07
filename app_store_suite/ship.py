@@ -44,24 +44,85 @@ def bump_version(project_dir: Path) -> tuple[str, str]:
     raise ShipError(f"could not find a 'version: X.Y.Z+B' line in {pubspec}")
 
 
+# Action calls the `init`-generated Fastfile ships commented out. If a lane still
+# contains these verbatim, `fastlane` will run it and exit 0 without having built or
+# uploaded anything — so callers can't tell a real ship from a no-op stub by the
+# fastlane exit code alone.
+_STUB_MARKERS = {
+    "ios": ('build_app(scheme: "Runner")', "upload_to_testflight"),
+    "android": ('gradle(task: "bundle", build_type: "Release")', 'upload_to_play_store(track: "internal")'),
+}
+
+
+def _lane_is_stub(project_dir: Path, platform: str) -> bool:
+    fastfile = project_dir / "fastlane" / "Fastfile"
+    if not fastfile.exists():
+        return False
+    text = fastfile.read_text()
+    return any(f"# {marker}" in text for marker in _STUB_MARKERS.get(platform, ()))
+
+
+# Placeholder values `init`-generated Fastfiles ship in place of real credentials.
+# If these are still present, fastlane will run for real and fail deep inside a
+# Play/App Store Connect API call instead of at a clean, obvious checkpoint.
+_PLACEHOLDER_CREDENTIAL_MARKERS = (
+    "your-service-account.json",
+    "TODO_ASC_KEY_ID",
+    "TODO_ASC_ISSUER_ID",
+)
+
+
+def _missing_credentials(project_dir: Path) -> list[str]:
+    fastfile = project_dir / "fastlane" / "Fastfile"
+    if not fastfile.exists():
+        return []
+    text = fastfile.read_text()
+    return [marker for marker in _PLACEHOLDER_CREDENTIAL_MARKERS if marker in text]
+
+
 def _fastlane(project_dir: Path, platform: str, lane: str) -> None:
     _require("bundle", "gem install bundler")
+    if not (project_dir / "Gemfile").exists():
+        raise ShipError(
+            f"no Gemfile at {project_dir} — run `appstoresuite init` to scaffold one, "
+            "or add one yourself with `gem \"fastlane\"` in it"
+        )
+    missing = _missing_credentials(project_dir)
+    if missing:
+        raise ShipError(
+            "fastlane/Fastfile still has placeholder credentials ("
+            + ", ".join(missing)
+            + ") — fill in ANDROID_PACKAGE_NAME/IOS_BUNDLE_ID/PLAY_JSON_KEY/ASC_KEY_ID/"
+            "ASC_ISSUER_ID/ASC_KEY_PATH at the top of fastlane/Fastfile before shipping"
+        )
     check = subprocess.run(["bundle", "check"], cwd=project_dir, capture_output=True)
     if check.returncode != 0:
         _run(["bundle", "install"], cwd=project_dir)
     _run(["bundle", "exec", "fastlane", platform, lane], cwd=project_dir)
 
 
-def ship_ios(project_dir: Path, lane: str = "ship_testflight") -> None:
-    """Builds the ipa and uploads it to TestFlight via `fastlane ios <lane>`."""
+def ship_ios(project_dir: Path, lane: str = "ship_testflight") -> bool:
+    """Builds the ipa and uploads it to TestFlight via `fastlane ios <lane>`.
+
+    Returns False if the lane still looks like the unfilled `init` stub (fastlane
+    ran and exited 0, but the build/upload steps are commented out and nothing
+    was actually shipped).
+    """
     _require("flutter")
     _fastlane(project_dir, "ios", lane)
+    return not _lane_is_stub(project_dir, "ios")
 
 
-def ship_android(project_dir: Path, lane: str = "ship_internal") -> None:
-    """Builds the App Bundle and uploads it to internal testing via `fastlane android <lane>`."""
+def ship_android(project_dir: Path, lane: str = "ship_internal") -> bool:
+    """Builds the App Bundle and uploads it to internal testing via `fastlane android <lane>`.
+
+    Returns False if the lane still looks like the unfilled `init` stub (fastlane
+    ran and exited 0, but the build/upload steps are commented out and nothing
+    was actually shipped).
+    """
     _require("flutter")
     _fastlane(project_dir, "android", lane)
+    return not _lane_is_stub(project_dir, "android")
 
 
 VENDORED_ARB_TRANSLATE = Path(__file__).parent.parent / "vendor" / "arb_translate"
