@@ -277,7 +277,7 @@ def main(argv: list[str] | None = None) -> None:
     p_auto.add_argument("--config", required=True)
     p_auto.add_argument("--device", help="Only capture this device key from the config")
     p_auto.add_argument(
-        "--render-delay", type=float, default=4.0, help="Seconds to wait after opening a deep link before screenshotting (give network images, animations, and async data time to settle)"
+        "--render-delay", type=float, default=6.0, help="Seconds to wait after opening a deep link before screenshotting (give network images, animations, and async data time to settle)"
     )
     p_auto.add_argument(
         "--lang",

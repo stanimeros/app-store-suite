@@ -14,7 +14,7 @@ class AutoCaptureError(RuntimeError):
 def run_auto_capture(
     cfg: StudioConfig,
     only_device: str | None = None,
-    render_delay: float = 4.0,
+    render_delay: float = 6.0,
     lang: str | None = None,
 ) -> None:
     """Unattended capture: for every configured shot, opens its deep link and
