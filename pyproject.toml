@@ -6,7 +6,6 @@ requires-python = ">=3.10"
 dependencies = [
     "Pillow>=10.0",
     "PyYAML>=6.0",
-    "Flask>=3.0",
     "fonttools>=4.0",
     "CairoSVG>=2.7",
 ]
@@ -22,4 +21,4 @@ build-backend = "setuptools.build_meta"
 include = ["app_store_suite*"]
 
 [tool.setuptools.package-data]
-app_store_suite = ["fonts/*.ttf", "fonts/OFL.txt", "webui_static/*.html"]
+app_store_suite = ["fonts/*.ttf", "fonts/OFL.txt"]

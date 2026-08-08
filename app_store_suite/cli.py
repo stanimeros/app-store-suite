@@ -85,13 +85,6 @@ def cmd_auto_capture(args: argparse.Namespace) -> None:
     run_auto_capture(cfg, only_device=args.device, render_delay=args.render_delay, lang=args.lang)
 
 
-def cmd_ui(args: argparse.Namespace) -> None:
-    from .webui import launch_web_ui  # deferred: flask only needed here
-
-    cfg = load_config(args.config)
-    launch_web_ui(cfg, port=args.port)
-
-
 def cmd_compose(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
     langs = [args.lang] if args.lang else cfg.languages
@@ -284,21 +277,18 @@ def main(argv: list[str] | None = None) -> None:
     p_auto.add_argument("--config", required=True)
     p_auto.add_argument("--device", help="Only capture this device key from the config")
     p_auto.add_argument(
-        "--render-delay", type=float, default=2.0, help="Seconds to wait after opening a deep link before screenshotting"
+        "--render-delay", type=float, default=4.0, help="Seconds to wait after opening a deep link before screenshotting (give network images, animations, and async data time to settle)"
     )
     p_auto.add_argument(
         "--lang",
         help="For apps whose deep-link routes switch the in-app language per capture (e.g. "
         "shot routes ending in ?lang=el): saves raw screenshots under raw/<lang>/<device>/ "
         "instead of the shared raw/<device>/, and suggested titles against this language "
-        "instead of the config's default",
+        "instead of the config's default. Comma-separated for multiple languages in one "
+        "run (e.g. --lang en,el) — each device is only booted/launched once and captures "
+        "every listed language back-to-back before moving to the next device.",
     )
     p_auto.set_defaults(func=cmd_auto_capture)
-
-    p_ui = sub.add_parser("ui", help="Open the local web control panel: auto-capture, preview, metadata, ship")
-    p_ui.add_argument("--config", required=True)
-    p_ui.add_argument("--port", type=int, default=5175)
-    p_ui.set_defaults(func=cmd_ui)
 
     p_compose = sub.add_parser("compose", help="Frame + brand raw screenshots into store-ready images")
     p_compose.add_argument("--config", required=True)

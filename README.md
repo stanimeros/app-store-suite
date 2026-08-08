@@ -101,11 +101,6 @@ appstoresuite fetch-listing --config /path/to/your-app/app_store_suite.yaml
 # Translate one language's shot titles/subtitles into another via the `claude` CLI
 # (separate from the app's own ARB strings — see "Auto-capture requirements" above).
 appstoresuite translate-titles --config /path/to/your-app/app_store_suite.yaml --from en --to el
-
-# Local web control panel: run auto-capture, browse the composed screenshot gallery
-# per language, regenerate with a random style, edit/regenerate listing copy, and
-# ship — see "Web control panel" below.
-appstoresuite ui --config /path/to/your-app/app_store_suite.yaml
 ```
 
 ## Auto-capture requirements
@@ -157,16 +152,22 @@ generated separately per shot by `store-listing`/`translate-titles`, stored in
 Without `deep_link_scheme` + `shots:` configured, `auto-capture` refuses to run
 (fails fast with what's missing) — every other command still works.
 
-**iOS "Open in *App*?" dialog.** The iOS Simulator shows a one-time system
-confirmation sheet the first time a given app boot receives a custom-scheme
-`simctl openurl` (it doesn't distinguish a real external app/Safari from
-automation) — `auto-capture` can't dismiss it itself, so that first shot's raw
-capture will show the dialog instead of the target screen. It does not
-reappear for the rest of that app session, so either: run `auto-capture` once
-to warm up the app (ignore/discard that first shot), then run it again for a
-clean capture of everything; or open one deep link by hand first (`xcrun
-simctl openurl <udid> '<scheme>://<any-route>'`, then tap **Open** in the
-Simulator window) before running `auto-capture`.
+**iOS "Open in *App*?" dialog.** The iOS Simulator shows a system confirmation
+sheet on *every* `simctl openurl` of a custom URL scheme (it doesn't
+distinguish a real external app/Safari from automation, and — unlike the
+one-time prompt you'd see on a real device — it does not stay dismissed for
+the rest of an app session; it reappears on each call). `open_url` in
+`capture/ios.py` detects it (via System Events, so it needs Accessibility
+access — macOS prompts for this automatically the first time; grant it under
+System Settings > Privacy & Security > Accessibility if it was previously
+denied) and pauses capture with a printed prompt until you tap **Open**
+yourself in the Simulator window; it resumes on its own the moment the dialog
+is gone. This is also where you'd handle a real sign-in prompt if a shot's
+route ever needs one — same pause-and-wait, no separate mechanism. If System
+Events can't see the dialog at all (no Accessibility access), capture just
+proceeds after a short settle delay and that shot's screenshot shows the
+dialog instead of the target screen — grant access and re-run rather than
+trying to work around it by re-running multiple times.
 
 ## Listing metadata: current vs. proposed
 
@@ -242,24 +243,6 @@ gem: in `deliver/lib/deliver/upload_metadata.rb`'s `review_attachment_file`,
 wrap `version.fetch_app_store_review_detail` in `begin/rescue; nil; end` and
 add `return unless app_store_review_detail` right after, mirroring the
 existing `fetch_reset_ratings_request` rescue a few lines up.
-
-## Web control panel
-
-```bash
-appstoresuite ui --config /path/to/your-app/app_store_suite.yaml
-```
-
-Opens a local page (default `http://127.0.0.1:5175`) with four tabs:
-
-- **Auto-Capture** — run it across all devices or just one; shows which shots are
-  captured per device.
-- **Store Preview** — browse composed screenshots per language; per-shot style
-  picker plus "apply one style to all shots".
-- **Metadata** — a table of current (read-only, from the stores) vs. proposed
-  (editable) per field; buttons to fetch current, draft proposed via Claude, or
-  save your edits.
-- **Ship** — buttons for `ship-ios` / `ship-android`, confirmed before running since
-  they upload a real build.
 
 ## Shipping
 
