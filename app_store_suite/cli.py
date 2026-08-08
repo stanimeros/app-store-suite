@@ -236,21 +236,28 @@ def cmd_translate_arb(args: argparse.Namespace) -> None:
 _PUSH_FUNCS = {
     ("android", "metadata"): push_mod.push_android_metadata,
     ("android", "screenshots"): push_mod.push_android_screenshots,
+    ("android", "images"): push_mod.push_android_images,
     ("ios", "metadata"): push_mod.push_ios_metadata,
     ("ios", "screenshots"): push_mod.push_ios_screenshots,
+    # No ("ios", "images") — App Store Connect has no feature-graphic/icon
+    # upload slot like Play does; the app icon ships inside the binary and
+    # "images" here means Play's separate icon + feature graphic assets.
 }
 
 
 def cmd_push(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
     platforms = ["android", "ios"] if args.platform == "both" else [args.platform]
-    targets = ["metadata", "screenshots"] if args.what == "all" else [args.what]
+    targets = ["metadata", "screenshots", "images"] if args.what == "all" else [args.what]
     langs = args.lang.split(",") if args.lang else None
 
     for platform in platforms:
         for target in targets:
+            func = _PUSH_FUNCS.get((platform, target))
+            if func is None:
+                continue  # e.g. ("ios", "images") — not applicable, see _PUSH_FUNCS
             print(f"Pushing {platform} {target}...")
-            _PUSH_FUNCS[(platform, target)](cfg, langs=langs)
+            func(cfg, langs=langs)
     print("Done.")
 
 
@@ -397,13 +404,19 @@ def main(argv: list[str] | None = None) -> None:
 
     p_push = sub.add_parser(
         "push",
-        help="Push 'proposed' listing copy and/or composed screenshots live to Play Console / "
-        "App Store Connect — no APK/AAB/IPA build or binary upload, ever (use ship-android/"
-        "ship-ios for that)",
+        help="Push 'proposed' listing copy, composed screenshots, and/or (Play only) the store "
+        "icon + feature graphic live to Play Console / App Store Connect — no APK/AAB/IPA build "
+        "or binary upload, ever (use ship-android/ship-ios for that)",
     )
     p_push.add_argument("--config", required=True)
     p_push.add_argument("--platform", choices=["android", "ios", "both"], default="both")
-    p_push.add_argument("--what", choices=["metadata", "screenshots", "all"], default="all")
+    p_push.add_argument(
+        "--what",
+        choices=["metadata", "screenshots", "images", "all"],
+        default="all",
+        help="'images' is Play-only (store icon + feature graphic) — App Store Connect has no "
+        "equivalent upload slot, so it's a no-op for --platform ios",
+    )
     p_push.add_argument(
         "--lang", help="Comma-separated language codes to push (defaults to all configured languages)"
     )

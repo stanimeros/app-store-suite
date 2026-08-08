@@ -178,6 +178,45 @@ def push_ios_metadata(cfg: StudioConfig, langs: list[str] | None = None) -> None
         api_key_path.unlink(missing_ok=True)
 
 
+def push_android_images(cfg: StudioConfig, langs: list[str] | None = None) -> None:
+    """Uploads the Play Store icon (`store-icon`, shared across languages) and
+    each language's feature graphic (`feature-graphic`) to Play Console — no
+    screenshots, no metadata text, no binary. Both are separate asset slots
+    from screenshots in Play's own data model (`images/icon.png` and
+    `images/featureGraphic.png` under each locale), so `push_android_screenshots`
+    never touches them — this is the only thing that does."""
+    _require("bundle")
+    _require_android_creds(cfg.app)
+    langs = langs or cfg.languages
+
+    metadata_root = cfg.app.flutter_dir / "fastlane" / "metadata" / "android"
+    for lang in langs:
+        images_dir = metadata_root / _android_locale(cfg, lang) / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+        if cfg.icon_path.exists():
+            shutil.copyfile(cfg.icon_path, images_dir / "icon.png")
+        fg_path = cfg.feature_graphic_path(lang)
+        if fg_path.exists():
+            shutil.copyfile(fg_path, images_dir / "featureGraphic.png")
+
+    _run(
+        [
+            "bundle", "exec", "fastlane", "supply",
+            "--package_name", cfg.app.android_package_name,
+            "--json_key", str(cfg.app.play_json_key),
+            "--metadata_path", str(metadata_root),
+            "--skip_upload_apk", "true",
+            "--skip_upload_aab", "true",
+            "--skip_upload_images", "false",
+            "--skip_upload_screenshots", "true",
+            "--skip_upload_changelogs", "true",
+            "--skip_upload_metadata", "true",
+            "--track", "internal",
+        ],
+        cwd=cfg.app.flutter_dir,
+    )
+
+
 def push_android_screenshots(cfg: StudioConfig, langs: list[str] | None = None) -> None:
     """Uploads each language's composed screenshots (from `compose`) to Play
     Console — no metadata text, no icon/feature graphic. Devices whose config
