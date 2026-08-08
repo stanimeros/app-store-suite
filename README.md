@@ -3,9 +3,7 @@
 Store-asset and shipping automation for Flutter apps: unattended screenshot capture
 via deep links, framed/titled store-ready marketing images, the Play Store icon and
 feature graphic, Google Play / App Store listing copy via the `claude` CLI, and
-shipping builds to TestFlight / Play Store internal testing via fastlane. A local web
-control panel ties it together: run auto-capture, browse composed screenshots per
-language, edit/regenerate listing copy, and ship — all from one page.
+shipping builds to TestFlight / Play Store internal testing via fastlane.
 
 Installs as a single global `appstoresuite` command (via pipx) so it runs from any
 directory. It holds no per-app state itself — each app's config lives in that app's
@@ -30,15 +28,22 @@ pipx upgrade app-store-suite
 
 `appstoresuite init` (run from inside your Flutter project, or with `--project-dir`)
 scaffolds the starter files most apps need: `app_store_suite.yaml`, `l10n.yaml` + a
-template `lib/l10n/app_en.arb`, `.env.example`, and a `fastlane/` skeleton (Fastfile
-with empty `ship_testflight`/`ship_internal` lanes + Appfile). App name, iOS bundle
-id, and Android package name are auto-detected from `pubspec.yaml`,
-`ios/Runner.xcodeproj/project.pbxproj`, and `android/app/build.gradle(.kts)` and
-filled into the generated config/Appfile — pass `--name` to override the detected
-app name. It never overwrites an existing file unless you pass `--force`. Fastlane
-still needs `fastlane init` run separately per-platform to wire up real Apple/Google
-credentials — the generated Fastfile is just a lane-name-matching stub for you to
-fill in.
+template `lib/l10n/app_en.arb`, `.env.example`, a `fastlane/` skeleton (Fastfile
+with empty `ship_testflight`/`ship_internal` lanes + Appfile), and
+`lib/debug/screenshot_router.dart` — a template implementation of the debug router
+`auto-capture` needs (see "Auto-capture requirements" below), full of `TODO`s and a
+doc comment covering how to wire it up plus two gotchas worth reading before you
+start (a splash-screen navigation race, and network images not being loaded yet when
+a shot is captured). App name, iOS bundle id, and Android package name are
+auto-detected from `pubspec.yaml`, `ios/Runner.xcodeproj/project.pbxproj`, and
+`android/app/build.gradle(.kts)` and filled into the generated config/Appfile — pass
+`--name` to override the detected app name. It never overwrites an existing file
+unless you pass `--force`. Fastlane still needs `fastlane init` run separately
+per-platform to wire up real Apple/Google credentials — the generated Fastfile is
+just a lane-name-matching stub for you to fill in.
+
+All scaffolded files are copied from `templates/` next to this package (source of
+truth for `init` — edit them there if you want to change what new projects get).
 
 Alternatively, copy `templates/app_store_suite.example.yaml` into your Flutter app's own repo root
 (e.g. as `app_store_suite.yaml`, alongside `pubspec.yaml`), and fill in `app.name`,
@@ -65,15 +70,19 @@ appstoresuite setup --config /path/to/your-app/app_store_suite.yaml
 # requirements" below for what the app itself needs to expose.
 appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml
 appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --device ios_phone
-appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --render-delay 3
+appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --render-delay 8
 
 # For apps whose debug router also reads a `lang` deep-link query param to switch
 # the in-app language (see "Auto-capture requirements" below): captures raw shots
 # under raw/<lang>/<device>/ instead of the shared raw/<device>/, so re-running per
-# language doesn't clobber the previous language's captures. Run once per language,
-# same devices stay booted/reused across calls if already running.
+# language doesn't clobber the previous language's captures.
 appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --lang en
 appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --lang el
+
+# Comma-separated languages capture back-to-back in one boot/launch per device
+# instead of one full boot per language — faster, and (on iOS) only has to get
+# past the "Open in <App>?" dialog once per device instead of once per language.
+appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --lang en,el
 
 # Composites .appstoresuite/raw/<device>/<shot>.png into
 # .appstoresuite/<lang>/store/<device>/<shot>.png: device bezel frame (or the

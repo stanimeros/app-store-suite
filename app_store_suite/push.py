@@ -41,10 +41,17 @@ def _run(cmd: list[str], cwd: Path) -> None:
 def _android_locale(cfg: StudioConfig, lang: str) -> str:
     """Play Console locale for `lang` — its store_locales override, else `lang`
     as-is if it already looks like a Play locale (has a region, e.g. "en-US"),
-    else the common `<lang>-<LANG>` guess Play expects for most languages."""
+    else the common `<lang>-<LANG>` guess Play expects for most languages
+    (e.g. "de" -> "de-DE", "fr" -> "fr-FR"). "en" is special-cased to "en-US"
+    since the naive `<lang>-<LANG>` guess produces "en-EN", which isn't a real
+    Play locale — English requires an actual region (en-US/en-GB/...)."""
     if lang in cfg.store_locales:
         return cfg.store_locales[lang]
-    return lang if "-" in lang else f"{lang}-{lang.upper()}"
+    if "-" in lang:
+        return lang
+    if lang == "en":
+        return "en-US"
+    return f"{lang}-{lang.upper()}"
 
 
 def _ios_locale(cfg: StudioConfig, lang: str) -> str:
