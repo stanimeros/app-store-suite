@@ -248,15 +248,22 @@ sevenInch and tenInch buckets, since a single composed image can't target
 both; iOS screenshots are auto-bucketed by App Store Connect from each
 image's pixel dimensions, so no per-device mapping is needed there.
 
+The three bugs below all live inside fastlane's own Ruby (`deliver`), not
+anything of ours — `appstoresuite setup` patches the installed gem for all
+three automatically (idempotent, safe to re-run any time, e.g. after a
+fastlane upgrade — see `gem_patches.py`). Documented here for the "why", and
+in case you're on a fastlane version where the patch text doesn't match
+(`setup` will tell you if a patch was skipped for that reason).
+
 **Known fastlane bug (fastlane 2.237.0):** `push --platform ios --what
 metadata` calls `fastlane deliver`, which can crash with
 `Spaceship::ConnectAPI::Models.parse: No data` on apps that have never had an
 App Store version reviewed yet (deliver's `review_attachment_file` step fetches
 `app_store_review_detail`, which 404s and isn't rescued — unlike the identical
-case just above it in the same file, which is). Fix by patching the installed
+case just above it in the same file, which is). `setup` patches the installed
 gem: in `deliver/lib/deliver/upload_metadata.rb`'s `review_attachment_file`,
-wrap `version.fetch_app_store_review_detail` in `begin/rescue; nil; end` and
-add `return unless app_store_review_detail` right after, mirroring the
+wraps `version.fetch_app_store_review_detail` in `begin/rescue; nil; end` and
+adds `return unless app_store_review_detail` right after, mirroring the
 existing `fetch_reset_ratings_request` rescue a few lines up.
 
 **Known fastlane bug, Play side:** every Android push passes
@@ -282,9 +289,9 @@ succeeded, and deliver retries. The retry's duplicate-check compares against
 upload batch and never refreshed — so it doesn't recognize the screenshots
 that just succeeded, and re-uploads them as genuinely new entries. Which
 files get hit is non-deterministic (depends on Apple's processing speed that
-run). Not exposed as any `deliver`/CLI option — fix by patching the installed
+run). Not exposed as any `deliver`/CLI option — `setup` patches the installed
 gem: in `deliver/lib/deliver/upload_screenshots.rb`'s `upload_screenshots`,
-right before the `iterator.each_local_screenshot` loop, add a
+right before the `iterator.each_local_screenshot` loop, adds a
 `refreshed_sets = {}` memo hash, then at the top of that loop's block:
 
 ```ruby
