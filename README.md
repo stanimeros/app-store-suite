@@ -9,7 +9,7 @@ language, edit/regenerate listing copy, and ship — all from one page.
 
 Installs as a single global `appstoresuite` command (via pipx) so it runs from any
 directory. It holds no per-app state itself — each app's config lives in that app's
-own repo (see `example/app_store_suite.example.yaml`), the same way `pubspec.yaml`
+own repo (see `templates/app_store_suite.example.yaml`), the same way `pubspec.yaml`
 or `l10n.yaml` do.
 
 ## Install
@@ -40,7 +40,7 @@ still needs `fastlane init` run separately per-platform to wire up real Apple/Go
 credentials — the generated Fastfile is just a lane-name-matching stub for you to
 fill in.
 
-Alternatively, copy `example/app_store_suite.example.yaml` into your Flutter app's own repo root
+Alternatively, copy `templates/app_store_suite.example.yaml` into your Flutter app's own repo root
 (e.g. as `app_store_suite.yaml`, alongside `pubspec.yaml`), and fill in `app.name`,
 `icon_source`, your devices, and (if you want `auto-capture`) `deep_link_scheme` +
 `shots:` — see "Auto-capture requirements" below. `flutter_dir: .` assumes the config

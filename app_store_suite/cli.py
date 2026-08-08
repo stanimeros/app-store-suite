@@ -43,7 +43,12 @@ def cmd_init(args: argparse.Namespace) -> None:
         "under the flutter: section, if not already there\n"
         "  - Copy .env.example to .env and fill in ARB_TRANSLATE_API_KEY\n"
         "  - Run `fastlane init` inside fastlane/ to wire up real Apple/Google credentials, "
-        "then fill in the ship_testflight/ship_internal lanes in fastlane/Fastfile"
+        "then fill in the ship_testflight/ship_internal lanes in fastlane/Fastfile\n"
+        "  - For auto-capture: fill in lib/debug/screenshot_router.dart's TODOs (it has full "
+        "instructions in its own doc comment, including two gotchas worth reading before you "
+        "start: a splash-screen navigation race, and network images not being loaded yet when "
+        "a shot is captured), then wire it into MaterialApp and set app.deep_link_scheme + "
+        "shots: in app_store_suite.yaml"
     )
 
 

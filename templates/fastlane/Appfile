@@ -1,0 +1,4 @@
+__APP_IDENTIFIER_LINE__ # iOS bundle id, detected from ios/Runner.xcodeproj if present
+# apple_id("you@example.com") # your Apple ID, used for TestFlight uploads
+# json_key_file("keys/your-service-account.json") # Play Console service account
+__PACKAGE_NAME_LINE__ # Android package name, detected from android/app/build.gradle if present
