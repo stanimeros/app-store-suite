@@ -15,6 +15,7 @@ from .compose import compose_all
 from .config import load_config
 from .feature_graphic import generate_feature_graphic
 from .frames import fetch as frames_fetch
+from .gem_patches import apply_known_patches
 from .icons import generate_play_store_icon
 from .init import scaffold_project
 from . import push as push_mod
@@ -81,6 +82,10 @@ def cmd_setup(args: argparse.Namespace) -> None:
     fetched = frames_fetch.prefetch(needed)
     print(f"  cache dir: {frames_fetch.cache_dir()}")
     print(f"  newly fetched: {fetched or '(all cached already)'}")
+
+    print("\nApplying known fastlane bug patches (see README's \"Known fastlane bug\" notes)...")
+    for line in apply_known_patches(cfg.app.flutter_dir):
+        print(f"  {line}")
 
     print("\nSetup complete.")
 

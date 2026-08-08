@@ -282,10 +282,38 @@ succeeded, and deliver retries. The retry's duplicate-check compares against
 upload batch and never refreshed — so it doesn't recognize the screenshots
 that just succeeded, and re-uploads them as genuinely new entries. Which
 files get hit is non-deterministic (depends on Apple's processing speed that
-run). Not fixable via any exposed option — deliver's retry count is
-hardcoded, not a `deliver`/CLI parameter. If you hit it: delete affected
-screenshots in App Store Connect and push again; a second attempt on a
-mostly-already-uploaded set is less likely to race the same way twice.
+run). Not exposed as any `deliver`/CLI option — fix by patching the installed
+gem: in `deliver/lib/deliver/upload_screenshots.rb`'s `upload_screenshots`,
+right before the `iterator.each_local_screenshot` loop, add a
+`refreshed_sets = {}` memo hash, then at the top of that loop's block:
+
+```ruby
+unless refreshed_sets[app_screenshot_set.id]
+  fresh_set = Spaceship::ConnectAPI::AppScreenshotSet.get(app_screenshot_set_id: app_screenshot_set.id)
+  app_screenshot_set.app_screenshots = fresh_set.app_screenshots if fresh_set
+  refreshed_sets[app_screenshot_set.id] = true
+end
+```
+
+This re-fetches each screenshot set's current state fresh once per call
+(including retries) instead of trusting the stale cache, so the duplicate
+check actually sees what's really on App Store Connect. If you already have
+duplicates from before this was patched: delete the affected screenshots in
+App Store Connect and push again (the delete step at the start of every push
+unconditionally clears a locale's entire existing screenshot set first, so
+you don't need to hand-pick which ones to remove).
+
+Even with that fix, a retry can still fire on a **false positive** — Apple
+hadn't finished processing yet, nothing was actually wrong — and each retry
+is still a real second upload pass, just a deduped one now. Given the choice
+between "occasionally reports a stale processing state it doesn't wait out"
+and "ever risks a duplicate," this project's `upload_screenshots.rb` also has
+the retry itself disabled: `retry_upload_screenshots_if_needed`'s `else`
+branch (the "Tries remaining" one) no longer calls `upload_screenshots`
+again — it just logs what it saw (failure/still-processing/missing) and
+returns. One upload pass, full stop; if Apple was still processing, checking
+App Store Connect a minute later than the CLI exiting always shows it caught
+up. If you're setting this up fresh, apply both patches together.
 
 ## Shipping
 
