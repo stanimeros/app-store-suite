@@ -219,22 +219,28 @@ so it doesn't linger as clutter.
 
 `store-listing`/`compose` only ever write local files — nothing reaches the
 stores until you push it. `push` does that, deliberately scoped to *just*
-metadata text and/or screenshots (never a binary — use `ship-ios`/
-`ship-android` for that, and never anything you haven't reviewed locally first):
+metadata text, screenshots, and/or (Play only) the store icon + feature
+graphic (never a binary — use `ship-ios`/`ship-android` for that, and never
+anything you haven't reviewed locally first):
 
 ```bash
-# Everything (metadata text + screenshots), both stores, all configured languages.
+# Everything (metadata text + screenshots + Play images), both stores, all configured languages.
 appstoresuite push --config /path/to/your-app/app_store_suite.yaml
 
 # Just one platform/target/language.
 appstoresuite push --config /path/to/your-app/app_store_suite.yaml --platform android --what metadata
 appstoresuite push --config /path/to/your-app/app_store_suite.yaml --platform ios --what screenshots --lang en,el
+appstoresuite push --config /path/to/your-app/app_store_suite.yaml --platform android --what images
 ```
 
 `--what metadata` pushes each language's *proposed* copy from
 `store_listing.json` (see above) — draft it with `store-listing` and review it
 before pushing; nothing here asks for confirmation. `--what screenshots`
-pushes whatever `compose` last wrote to `.appstoresuite/<lang>/store/`.
+pushes whatever `compose` last wrote to `.appstoresuite/<lang>/store/`. `--what
+images` pushes the store icon (`store-icon`) and each language's feature
+graphic (`feature-graphic`) — Play only, since App Store Connect has no
+equivalent upload slot (the app icon ships inside the binary there); it's a
+no-op for `--platform ios`.
 
 Requires the same store credentials as `fetch-listing` (above). Android
 tablet screenshots (any device key containing `"tablet"`) go to both Play's
@@ -252,6 +258,16 @@ gem: in `deliver/lib/deliver/upload_metadata.rb`'s `review_attachment_file`,
 wrap `version.fetch_app_store_review_detail` in `begin/rescue; nil; end` and
 add `return unless app_store_review_detail` right after, mirroring the
 existing `fetch_reset_ratings_request` rescue a few lines up.
+
+**Known fastlane bug, Play side:** every Android push passes
+`--changes_not_sent_for_review true`, meant to leave the edit as an
+unpublished draft in Play Console. For edits that only touch listing content
+(metadata/images/screenshots, no APK/AAB) rather than a track/release, Google's
+backend appears to ignore the flag and sends it for review anyway — see
+[fastlane/fastlane#26439](https://github.com/fastlane/fastlane/issues/26439),
+same scenario. Not fixable from here; judged an acceptable tradeoff since
+Play's review of listing content is normally fast/automated, unlike binary
+review — just don't expect the draft-hold to actually work.
 
 ## Shipping
 

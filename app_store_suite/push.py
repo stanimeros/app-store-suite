@@ -9,6 +9,20 @@ from pathlib import Path
 from .config import AppConfig, StudioConfig
 from .store_listing import load_listing
 
+# KNOWN LIMITATION: every Android push below passes
+# --changes_not_sent_for_review true, which is *supposed* to keep the edit as
+# an unpublished draft in Play Console instead of auto-queueing it for
+# Google's review. In practice, for edits that only touch listing content
+# (metadata/images/screenshots — no APK/AAB) rather than a track/release,
+# Google's backend appears to ignore the flag and sends it for review
+# anyway. This is a confirmed, currently-open upstream fastlane bug, not
+# something fixable here: https://github.com/fastlane/fastlane/issues/26439
+# (screenshots sent for review automatically despite the flag, same
+# metadata/images/screenshots-only scenario as this file's calls). Kept as
+# a documented caveat rather than worked around — Play's review of listing
+# content is normally fast/automated, unlike binary review, so this has
+# been judged an acceptable tradeoff over disabling the push entirely.
+
 _PLAY_FIELDS = {
     "play_app_name": "title.txt",
     "play_short_description": "short_description.txt",
