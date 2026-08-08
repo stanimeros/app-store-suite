@@ -279,14 +279,14 @@ def main(argv: list[str] | None = None) -> None:
     p_init.set_defaults(func=cmd_init)
 
     p_setup = sub.add_parser("setup", help="Verify tooling, create missing Android AVDs, prefetch device frames")
-    p_setup.add_argument("--config", required=True)
+    p_setup.add_argument("--config", required=True, help="Path to the app_store_suite.yaml config file (see `appstoresuite init`)")
     p_setup.set_defaults(func=cmd_setup)
 
     p_auto = sub.add_parser(
         "auto-capture",
         help="Unattended capture: opens each configured shot's deep link and screenshots it, no navigation needed",
     )
-    p_auto.add_argument("--config", required=True)
+    p_auto.add_argument("--config", required=True, help="Path to the app_store_suite.yaml config file (see `appstoresuite init`)")
     p_auto.add_argument("--device", help="Only capture this device key from the config")
     p_auto.add_argument(
         "--render-delay", type=float, default=6.0, help="Seconds to wait after opening a deep link before screenshotting (give network images, animations, and async data time to settle)"
@@ -303,7 +303,7 @@ def main(argv: list[str] | None = None) -> None:
     p_auto.set_defaults(func=cmd_auto_capture)
 
     p_compose = sub.add_parser("compose", help="Frame + brand raw screenshots into store-ready images")
-    p_compose.add_argument("--config", required=True)
+    p_compose.add_argument("--config", required=True, help="Path to the app_store_suite.yaml config file (see `appstoresuite init`)")
     p_compose.add_argument("--device", help="Only compose this device key from the config")
     p_compose.add_argument("--lang", help="Only compose this language (defaults to all configured languages)")
     p_compose.set_defaults(func=cmd_compose)
@@ -312,7 +312,7 @@ def main(argv: list[str] | None = None) -> None:
         "style-preview",
         help="Render every style variant for one or more shots side by side, for comparison",
     )
-    p_style_preview.add_argument("--config", required=True)
+    p_style_preview.add_argument("--config", required=True, help="Path to the app_store_suite.yaml config file (see `appstoresuite init`)")
     p_style_preview.add_argument("--device", help="Device key to preview with (defaults to the first configured device)")
     p_style_preview.add_argument(
         "--lang", help="Language to preview with (style is language-independent; defaults to the first configured language)"
@@ -324,7 +324,7 @@ def main(argv: list[str] | None = None) -> None:
         "style-pick",
         help="Choose a style variant for one shot id (overrides the config's default style for it on future composes)",
     )
-    p_style_pick.add_argument("--config", required=True)
+    p_style_pick.add_argument("--config", required=True, help="Path to the app_store_suite.yaml config file (see `appstoresuite init`)")
     p_style_pick.add_argument("--shot", help="Shot id to set/clear (required unless --list)")
     p_style_pick.add_argument("--variant", help="Style variant name to use for this shot")
     p_style_pick.add_argument("--clear", action="store_true", help="Remove this shot's override, reverting to the config's default style")
@@ -332,11 +332,11 @@ def main(argv: list[str] | None = None) -> None:
     p_style_pick.set_defaults(func=cmd_style_pick)
 
     p_icon = sub.add_parser("store-icon", help="Generate the 512x512 Play Store app icon")
-    p_icon.add_argument("--config", required=True)
+    p_icon.add_argument("--config", required=True, help="Path to the app_store_suite.yaml config file (see `appstoresuite init`)")
     p_icon.set_defaults(func=cmd_store_icon)
 
     p_fg = sub.add_parser("feature-graphic", help="Generate the 1024x500 Play Store feature graphic")
-    p_fg.add_argument("--config", required=True)
+    p_fg.add_argument("--config", required=True, help="Path to the app_store_suite.yaml config file (see `appstoresuite init`)")
     p_fg.add_argument("--lang", help="Language folder to write into (defaults to the first configured language)")
     p_fg.add_argument("--headline", help="Override the headline text (defaults to app name)")
     p_fg.add_argument("--subtitle", help="Optional subtitle text shown below the headline")
@@ -345,7 +345,7 @@ def main(argv: list[str] | None = None) -> None:
     p_listing = sub.add_parser(
         "store-listing", help="Draft 'proposed' Google Play / App Store listing copy via the claude CLI"
     )
-    p_listing.add_argument("--config", required=True)
+    p_listing.add_argument("--config", required=True, help="Path to the app_store_suite.yaml config file (see `appstoresuite init`)")
     p_listing.add_argument("--lang", help="Language folder to write into (defaults to the first configured language)")
     p_listing.set_defaults(func=cmd_store_listing)
 
@@ -353,14 +353,14 @@ def main(argv: list[str] | None = None) -> None:
         "fetch-listing",
         help="Fetch the currently-live listing copy from App Store Connect / Play Console into 'current'",
     )
-    p_fetch_listing.add_argument("--config", required=True)
+    p_fetch_listing.add_argument("--config", required=True, help="Path to the app_store_suite.yaml config file (see `appstoresuite init`)")
     p_fetch_listing.add_argument("--lang", help="Language to fetch (defaults to the first configured language)")
     p_fetch_listing.set_defaults(func=cmd_fetch_listing)
 
     p_translate = sub.add_parser(
         "translate-titles", help="Translate one language's shot titles/subtitles into another via the claude CLI"
     )
-    p_translate.add_argument("--config", required=True)
+    p_translate.add_argument("--config", required=True, help="Path to the app_store_suite.yaml config file (see `appstoresuite init`)")
     p_translate.add_argument("--from", dest="from_lang", required=True, help="Source language code, e.g. en")
     p_translate.add_argument("--to", dest="to_lang", required=True, help="Target language code, e.g. el")
     p_translate.set_defaults(func=cmd_translate_titles)
@@ -371,7 +371,11 @@ def main(argv: list[str] | None = None) -> None:
             help="Flutter project root. Defaults to --config's flutter_dir, or the "
             "current directory if it contains pubspec.yaml.",
         )
-        p.add_argument("--config", help="Derive --project-dir from this config's flutter_dir")
+        p.add_argument(
+            "--config",
+            help="Path to app_store_suite.yaml — used only to derive --project-dir from "
+            "its flutter_dir if --project-dir isn't passed directly",
+        )
 
     p_bump = sub.add_parser("bump-version", help="Bump pubspec.yaml's PATCH and +BUILD together")
     _add_project_dir_args(p_bump)
@@ -408,14 +412,20 @@ def main(argv: list[str] | None = None) -> None:
         "icon + feature graphic live to Play Console / App Store Connect — no APK/AAB/IPA build "
         "or binary upload, ever (use ship-android/ship-ios for that)",
     )
-    p_push.add_argument("--config", required=True)
-    p_push.add_argument("--platform", choices=["android", "ios", "both"], default="both")
+    p_push.add_argument("--config", required=True, help="Path to the app_store_suite.yaml config file (see `appstoresuite init`)")
+    p_push.add_argument(
+        "--platform",
+        choices=["android", "ios", "both"],
+        default="both",
+        help="Which store to push to (default: both)",
+    )
     p_push.add_argument(
         "--what",
         choices=["metadata", "screenshots", "images", "all"],
         default="all",
-        help="'images' is Play-only (store icon + feature graphic) — App Store Connect has no "
-        "equivalent upload slot, so it's a no-op for --platform ios",
+        help="Which asset type to push (default: all). 'images' is Play-only (store icon + "
+        "feature graphic) — App Store Connect has no equivalent upload slot, so it's a "
+        "no-op for --platform ios",
     )
     p_push.add_argument(
         "--lang", help="Comma-separated language codes to push (defaults to all configured languages)"

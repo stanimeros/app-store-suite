@@ -269,6 +269,24 @@ same scenario. Not fixable from here; judged an acceptable tradeoff since
 Play's review of listing content is normally fast/automated, unlike binary
 review — just don't expect the draft-hold to actually work.
 
+**Known fastlane bug, iOS screenshots — duplicates:** `push --platform ios
+--what screenshots` can leave duplicate screenshots on App Store Connect, even
+though `push_ios_screenshots` already isolates each language into its own
+`deliver` call specifically to reduce this. Root cause, traced in
+`deliver/lib/deliver/upload_screenshots.rb`: after uploading, deliver polls
+Apple's processing state, then verifies every local file made it up by
+checksum. If Apple hasn't finished processing a screenshot by the time that
+check runs (a few seconds later), it looks "missing" even though it actually
+succeeded, and deliver retries. The retry's duplicate-check compares against
+`app_screenshot_set.app_screenshots`, a snapshot cached before the *first*
+upload batch and never refreshed — so it doesn't recognize the screenshots
+that just succeeded, and re-uploads them as genuinely new entries. Which
+files get hit is non-deterministic (depends on Apple's processing speed that
+run). Not fixable via any exposed option — deliver's retry count is
+hardcoded, not a `deliver`/CLI parameter. If you hit it: delete affected
+screenshots in App Store Connect and push again; a second attempt on a
+mostly-already-uploaded set is less likely to race the same way twice.
+
 ## Shipping
 
 These operate directly on a Flutter project checkout. `--project-dir` is optional:
