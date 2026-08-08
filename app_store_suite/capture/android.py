@@ -3,7 +3,10 @@ from __future__ import annotations
 import os
 import subprocess
 import time
+from io import BytesIO
 from pathlib import Path
+
+from PIL import Image
 
 
 class AvdNotFound(RuntimeError):
@@ -126,6 +129,52 @@ def wait_for_serial(timeout: float = 180) -> str:
     raise TimeoutError(f"Emulator {serial} did not finish booting within {timeout}s")
 
 
+def _screen_size(serial: str) -> tuple[int, int] | None:
+    """Returns (width, height) of the currently effective display, or None if
+    `wm size` can't be parsed. Reflects whatever rotation is currently applied
+    — e.g. a landscape-native tablet held in its natural rotation reports
+    width > height here even though `user_rotation` is 0 for that state."""
+    result = subprocess.run(
+        [_adb(), "-s", serial, "shell", "wm", "size"], capture_output=True, text=True
+    )
+    # Prefer "Override size" (what apps actually see) if present, else "Physical size".
+    for prefix in ("Override size:", "Physical size:"):
+        for line in result.stdout.splitlines():
+            if prefix in line:
+                dims = line.split(":", 1)[1].strip()
+                w, h = dims.split("x")
+                return int(w), int(h)
+    return None
+
+
+def force_portrait(serial: str) -> None:
+    """Locks the emulator to portrait, disabling auto-rotate first. Some AVDs
+    have a landscape-native hardware profile (Pixel Tablet's `hw.lcd.width` >
+    `hw.lcd.height` in its config.ini, matching a real tablet held
+    horizontally) — Android's rotation values are relative to a device's own
+    natural orientation, so `user_rotation=0` means landscape on those, not
+    portrait like it does on a phone. Rather than assume, this sets rotation
+    0 and checks the actual resulting screen size, switching to rotation 1 if
+    that's still landscape. Store screenshots are portrait for every device
+    app-store-suite composes for, so this is unconditional, not a config
+    option.
+    """
+    subprocess.run(
+        [_adb(), "-s", serial, "shell", "settings", "put", "system", "accelerometer_rotation", "0"],
+        capture_output=True,
+    )
+    subprocess.run(
+        [_adb(), "-s", serial, "shell", "settings", "put", "system", "user_rotation", "0"],
+        capture_output=True,
+    )
+    size = _screen_size(serial)
+    if size and size[0] > size[1]:  # still landscape (width > height) — rotate 90°
+        subprocess.run(
+            [_adb(), "-s", serial, "shell", "settings", "put", "system", "user_rotation", "1"],
+            capture_output=True,
+        )
+
+
 def open_url(serial: str, url: str) -> None:
     """Opens a deep link (or any URL) via an ACTION_VIEW intent, e.g. for auto-capture routes."""
     subprocess.run(
@@ -135,12 +184,28 @@ def open_url(serial: str, url: str) -> None:
 
 
 def screenshot(serial: str, dest: Path) -> None:
+    """`screencap` sometimes returns the raw physical-panel framebuffer
+    regardless of the current software rotation (observed on landscape-native
+    tablet AVDs even after `force_portrait` correctly rotates the live UI) —
+    so this normalizes to portrait after the fact rather than trusting
+    device-side rotation state, which is the only way to be sure. Every
+    device app-store-suite composes store screenshots for is portrait, so a
+    landscape capture (width > height) is unconditionally wrong here, never
+    an intentional landscape shot.
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
         [_adb(), "-s", serial, "exec-out", "screencap", "-p"],
         capture_output=True, check=True,
     )
-    dest.write_bytes(result.stdout)
+    data = result.stdout
+    img = Image.open(BytesIO(data))
+    if img.width > img.height:
+        img = img.rotate(-90, expand=True)
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        data = buf.getvalue()
+    dest.write_bytes(data)
 
 
 def kill(serial: str) -> None:

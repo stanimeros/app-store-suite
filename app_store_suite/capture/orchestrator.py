@@ -36,6 +36,7 @@ def device_session(cfg: StudioConfig, key: str, device: DeviceConfig):
             identifier = android.wait_for_serial()
             print(f"Emulator ready as {identifier}")
             was_running = False
+        android.force_portrait(identifier)
         take_screenshot = lambda dest: android.screenshot(identifier, dest)  # noqa: E731
         open_url = lambda url: android.open_url(identifier, url)  # noqa: E731
 
