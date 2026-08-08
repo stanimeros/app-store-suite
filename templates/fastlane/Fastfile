@@ -66,6 +66,14 @@ platform :android do
       release_status: "completed",
       skip_upload_changelogs: true,
       skip_upload_metadata: true,
+      # Binary-only lane — metadata/images/screenshots are `appstoresuite
+      # push`'s job, not this one's. skip_upload_images/screenshots default
+      # to false in supply, so without these two, a ship would also
+      # silently re-upload whatever's currently sitting in
+      # fastlane/metadata/android/*/images/ (icon, feature graphic,
+      # screenshots) alongside the binary.
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
       changes_not_sent_for_review: true
     )
     UI.success("Uploaded #{v[:name]}+#{v[:code]} to Play Store internal testing")

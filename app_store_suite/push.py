@@ -308,14 +308,28 @@ def push_ios_screenshots(cfg: StudioConfig, langs: list[str] | None = None) -> N
     """Uploads each language's composed screenshots (from `compose`) to App
     Store Connect — no metadata text, no binary. `deliver` auto-detects each
     image's device-size bucket from its pixel dimensions, so every iOS
-    device's shots for a language are just dumped into one locale folder."""
+    device's shots for a language are just dumped into one locale folder.
+
+    One `deliver` invocation per language, not one call covering every
+    locale: `--overwrite_screenshots true` is supposed to delete a locale's
+    existing screenshots before uploading its replacements, but observed in
+    practice (multiple languages processed in parallel by a single deliver
+    call) to sometimes undercount an existing bucket's occupancy and hit
+    Apple's 10-screenshots-per-device-size limit with a mix of old and new
+    images — e.g. some of a language's own new uploads getting rejected as
+    "too many screenshots" despite only 6 being sent. Isolating each
+    language into its own `deliver` call, each pointed at a screenshots_path
+    containing only that locale's directory, avoids whatever cross-locale
+    interaction causes that miscount."""
     _require("bundle")
     _require_ios_creds(cfg.app)
     langs = langs or cfg.languages
 
     screenshots_root = cfg.app.flutter_dir / "fastlane" / "screenshots"
+    locale_dirs: dict[str, Path] = {}
     for lang in langs:
-        locale_dir = screenshots_root / _ios_locale(cfg, lang)
+        locale = _ios_locale(cfg, lang)
+        locale_dir = screenshots_root / locale
         if locale_dir.is_dir():
             shutil.rmtree(locale_dir)
         locale_dir.mkdir(parents=True, exist_ok=True)
@@ -329,34 +343,42 @@ def push_ios_screenshots(cfg: StudioConfig, langs: list[str] | None = None) -> N
             for src in sorted(src_dir.glob("*.png")):
                 shutil.copyfile(src, locale_dir / f"{n}_{device_key}_{src.stem}.png")
                 n += 1
+        locale_dirs[locale] = locale_dir
 
+    metadata_path = cfg.app.flutter_dir / "fastlane" / "metadata" / "ios"
     api_key_path = _asc_api_key_file(cfg.app)
     try:
-        _run(
-            [
-                "bundle", "exec", "fastlane", "deliver",
-                "--app_identifier", cfg.app.bundle_id,
-                "--api_key_path", str(api_key_path),
-                "--screenshots_path", str(screenshots_root),
-                # Without an explicit --metadata_path, deliver still
-                # validates locale directory names against its own default
-                # (./fastlane/metadata, relative to cwd) even with
-                # --skip_metadata true — and that default contains our
-                # "android"/"ios" split, which it then rejects "ios" itself
-                # as an invalid locale name. Point it at the same
-                # fastlane/metadata/ios used by push_ios_metadata so it
-                # validates (and finds nothing to touch, since metadata is
-                # skipped) the right directory instead.
-                "--metadata_path", str(cfg.app.flutter_dir / "fastlane" / "metadata" / "ios"),
-                "--skip_screenshots", "false",
-                "--skip_metadata", "true",
-                "--skip_binary_upload", "true",
-                "--skip_app_version_update", "true",
-                "--overwrite_screenshots", "true",
-                "--run_precheck_before_submit", "false",
-                "--force",
-            ],
-            cwd=cfg.app.flutter_dir,
-        )
+        for locale, locale_dir in locale_dirs.items():
+            with tempfile.TemporaryDirectory() as tmp:
+                scoped_root = Path(tmp) / "screenshots"
+                scoped_root.mkdir()
+                shutil.copytree(locale_dir, scoped_root / locale)
+                _run(
+                    [
+                        "bundle", "exec", "fastlane", "deliver",
+                        "--app_identifier", cfg.app.bundle_id,
+                        "--api_key_path", str(api_key_path),
+                        "--screenshots_path", str(scoped_root),
+                        # Without an explicit --metadata_path, deliver still
+                        # validates locale directory names against its own
+                        # default (./fastlane/metadata, relative to cwd)
+                        # even with --skip_metadata true — and that default
+                        # contains our "android"/"ios" split, which it then
+                        # rejects "ios" itself as an invalid locale name.
+                        # Point it at the same fastlane/metadata/ios used by
+                        # push_ios_metadata so it validates (and finds
+                        # nothing to touch, since metadata is skipped) the
+                        # right directory instead.
+                        "--metadata_path", str(metadata_path),
+                        "--skip_screenshots", "false",
+                        "--skip_metadata", "true",
+                        "--skip_binary_upload", "true",
+                        "--skip_app_version_update", "true",
+                        "--overwrite_screenshots", "true",
+                        "--run_precheck_before_submit", "false",
+                        "--force",
+                    ],
+                    cwd=cfg.app.flutter_dir,
+                )
     finally:
         api_key_path.unlink(missing_ok=True)
