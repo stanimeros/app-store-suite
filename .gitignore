@@ -4,3 +4,20 @@ __pycache__/
 *.egg-info/
 vendor/arb_translate/.dart_tool/
 vendor/arb_translate/build/
+
+# Never commit real per-app config/credentials (these belong in the
+# consuming app's own repo, but ignore them here too as a safety net).
+.env
+.env.*
+!templates/env.example
+app_store_suite.yaml
+!templates/app_store_suite.example.yaml
+*.p8
+*.pem
+*.pfx
+*.jks
+*.keystore
+*service-account*.json
+*service_account*.json
+AuthKey_*.json
+.appstoresuite/

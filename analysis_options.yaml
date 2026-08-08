@@ -1,0 +1,7 @@
+# This is a Python package, not a Flutter project — templates/lib/**.dart is a
+# copy-paste template meant to be dropped into a *consuming* Flutter app (which
+# has its own pubspec.yaml/analysis_options.yaml), not analyzed in place here,
+# where there's no pubspec.yaml for it to resolve Flutter imports against.
+analyzer:
+  exclude:
+    - templates/**
