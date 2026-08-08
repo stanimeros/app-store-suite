@@ -35,7 +35,13 @@ _cmap_cache: dict[str, set[int]] = {}
 
 
 def _font(name: str, size: int) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(str(_FONTS_DIR / name), size)
+    # layout_engine=BASIC opts out of Pillow's raqm-based complex text shaping.
+    # We don't need it (no ligatures/RTL/reordering in any script this project
+    # renders) and it has a real bug: a bidi/script-run mismatch right at a
+    # Latin-punctuation-then-Greek boundary (e.g. ", χάρτης") can misplace one
+    # cluster's glyph origin, rendering as a spurious mid-word gap. BASIC just
+    # advances glyph-by-glyph per character and doesn't hit this.
+    return ImageFont.truetype(str(_FONTS_DIR / name), size, layout_engine=ImageFont.Layout.BASIC)
 
 
 def _covers(font_name: str, text: str) -> bool:

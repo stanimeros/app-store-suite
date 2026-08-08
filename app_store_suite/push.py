@@ -55,11 +55,15 @@ def _android_locale(cfg: StudioConfig, lang: str) -> str:
 
 
 def _ios_locale(cfg: StudioConfig, lang: str) -> str:
-    """App Store Connect locale for `lang` — its store_locales override
-    (only if it looks ASC-shaped, e.g. not Play's "el-GR"), else `lang` as-is.
-    ASC's own locale list rarely matches Play's exactly (e.g. plain "el" vs
-    Play's "el-GR"), so this intentionally does NOT reuse store_locales by
-    default — set an ios-specific override in the config if you need one."""
+    """App Store Connect locale for `lang` — `lang` as-is, except "en" which
+    ASC requires a real region for (no bare "en" in its locale list, unlike
+    e.g. bare "el" which is valid) — defaults to "en-US". This intentionally
+    does NOT reuse `store_locales` (that's Play-shaped, e.g. Play's "el-GR"
+    vs ASC's plain "el") — there's no ASC-specific override in the config
+    yet, so other ambiguous codes (pt, zh, ...) need a manual rename of the
+    fastlane/metadata/ios/<locale> directory to whatever ASC expects."""
+    if lang == "en":
+        return "en-US"
     return lang
 
 
@@ -124,6 +128,13 @@ def push_android_metadata(cfg: StudioConfig, langs: list[str] | None = None) -> 
             "--skip_upload_changelogs", "true",
             "--skip_upload_metadata", "false",
             "--track", "internal",
+            # Without this, fastlane supply's default (false) sends every
+            # change straight to Google's own review queue as part of
+            # committing the edit — there is no separate "submit for review"
+            # step to skip like there is on iOS, this *is* the equivalent.
+            # true keeps the edit as an unpublished draft you review/publish
+            # yourself in Play Console.
+            "--changes_not_sent_for_review", "true",
         ],
         cwd=cfg.app.flutter_dir,
     )
@@ -212,6 +223,13 @@ def push_android_images(cfg: StudioConfig, langs: list[str] | None = None) -> No
             "--skip_upload_changelogs", "true",
             "--skip_upload_metadata", "true",
             "--track", "internal",
+            # Without this, fastlane supply's default (false) sends every
+            # change straight to Google's own review queue as part of
+            # committing the edit — there is no separate "submit for review"
+            # step to skip like there is on iOS, this *is* the equivalent.
+            # true keeps the edit as an unpublished draft you review/publish
+            # yourself in Play Console.
+            "--changes_not_sent_for_review", "true",
         ],
         cwd=cfg.app.flutter_dir,
     )
@@ -260,6 +278,13 @@ def push_android_screenshots(cfg: StudioConfig, langs: list[str] | None = None) 
             "--skip_upload_changelogs", "true",
             "--skip_upload_metadata", "true",
             "--track", "internal",
+            # Without this, fastlane supply's default (false) sends every
+            # change straight to Google's own review queue as part of
+            # committing the edit — there is no separate "submit for review"
+            # step to skip like there is on iOS, this *is* the equivalent.
+            # true keeps the edit as an unpublished draft you review/publish
+            # yourself in Play Console.
+            "--changes_not_sent_for_review", "true",
         ],
         cwd=cfg.app.flutter_dir,
     )
