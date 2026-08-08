@@ -423,7 +423,18 @@ def main(argv: list[str] | None = None) -> None:
     p_push.set_defaults(func=cmd_push)
 
     args = parser.parse_args(argv)
-    args.func(args)
+    try:
+        args.func(args)
+    except SystemExit:
+        raise
+    except (RuntimeError, ValueError, FileNotFoundError, KeyError) as exc:
+        # Covers ConfigError, PushError, ShipError, FetchListingError,
+        # TitleSuggestionError, AutoCaptureError, AvdNotFound, SimulatorNotFound,
+        # FlutterLaunchError, and any missing-key/missing-file mistakes in a
+        # config or command invocation — surfaced as a single clean line
+        # instead of a Python traceback, since this CLI is also driven by
+        # agents that need to parse the failure reason, not a stack trace.
+        raise SystemExit(f"Error: {exc}") from None
 
 
 if __name__ == "__main__":

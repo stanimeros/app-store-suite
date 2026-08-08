@@ -2,8 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import yaml
+
+
+class ConfigError(ValueError):
+    """Raised for anything wrong with app_store_suite.yaml itself (missing file,
+    invalid YAML, missing/malformed keys) — always includes the config path and
+    the offending key so agents/users can fix it without reading this module."""
 
 
 @dataclass
@@ -139,11 +146,28 @@ class StudioConfig:
         return self.lang_dir(lang) / "store_listing.json"
 
 
+def _require_key(d: dict, key: str, *, where: str, config_path: Path) -> Any:
+    if key not in d or d[key] in (None, ""):
+        raise ConfigError(f"{config_path}: missing required key '{key}' under {where}")
+    return d[key]
+
+
 def load_config(path: str | Path) -> StudioConfig:
     path = Path(path).expanduser().resolve()
-    raw = yaml.safe_load(path.read_text())
+    if not path.is_file():
+        raise ConfigError(f"Config file not found: {path}")
 
+    try:
+        raw = yaml.safe_load(path.read_text())
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"{path}: invalid YAML — {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{path}: expected a YAML mapping at the top level")
+
+    if not isinstance(raw.get("app"), dict):
+        raise ConfigError(f"{path}: missing required top-level key 'app'")
     app_raw = raw["app"]
+
     flutter_dir = Path(app_raw.get("flutter_dir", ".")).expanduser()
     if not flutter_dir.is_absolute():
         flutter_dir = (path.parent / flutter_dir).resolve()
@@ -156,9 +180,9 @@ def load_config(path: str | Path) -> StudioConfig:
         return value if value.is_absolute() else (flutter_dir / value).resolve()
 
     app = AppConfig(
-        name=app_raw["name"],
+        name=_require_key(app_raw, "name", where="app", config_path=path),
         flutter_dir=flutter_dir,
-        icon_source=flutter_dir / app_raw["icon_source"],
+        icon_source=flutter_dir / _require_key(app_raw, "icon_source", where="app", config_path=path),
         deep_link_scheme=app_raw.get("deep_link_scheme"),
         bundle_id=app_raw.get("bundle_id"),
         asc_key_id=app_raw.get("asc_key_id"),
@@ -168,16 +192,23 @@ def load_config(path: str | Path) -> StudioConfig:
         play_json_key=_resolve("play_json_key"),
     )
 
+    if not isinstance(raw.get("devices"), dict) or not raw["devices"]:
+        raise ConfigError(f"{path}: missing or empty required top-level key 'devices'")
+
     devices: dict[str, DeviceConfig] = {}
     for key, dev in raw["devices"].items():
+        if not isinstance(dev, dict):
+            raise ConfigError(f"{path}: devices.{key} must be a mapping with 'simulator' or 'avd'")
         if "simulator" in dev:
             devices[key] = DeviceConfig(key=key, kind="ios", identifier=dev["simulator"])
         elif "avd" in dev:
             devices[key] = DeviceConfig(key=key, kind="android", identifier=dev["avd"])
         else:
-            raise ValueError(f"Device '{key}' must define either 'simulator' or 'avd'")
+            raise ConfigError(f"{path}: devices.{key} must define either 'simulator' or 'avd'")
 
     style_raw = raw.get("style", {})
+    if not isinstance(style_raw, dict):
+        raise ConfigError(f"{path}: 'style' must be a mapping")
     decoration_svg_dir_raw = style_raw.get("decoration_svg_dir")
     style = StyleConfig(
         background_color=style_raw.get("background_color", "#FAFAF8"),
@@ -195,10 +226,16 @@ def load_config(path: str | Path) -> StudioConfig:
 
     languages = raw.get("languages") or ["en"]
 
-    shots = [
-        ShotConfig(id=shot_raw["id"], route=shot_raw["route"])
-        for shot_raw in raw.get("shots") or []
-    ]
+    shots = []
+    for i, shot_raw in enumerate(raw.get("shots") or []):
+        if not isinstance(shot_raw, dict):
+            raise ConfigError(f"{path}: shots[{i}] must be a mapping with 'id' and 'route'")
+        shots.append(
+            ShotConfig(
+                id=_require_key(shot_raw, "id", where=f"shots[{i}]", config_path=path),
+                route=_require_key(shot_raw, "route", where=f"shots[{i}]", config_path=path),
+            )
+        )
 
     store_locales = raw.get("store_locales") or {}
 
