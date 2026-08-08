@@ -324,6 +324,16 @@ def push_ios_screenshots(cfg: StudioConfig, langs: list[str] | None = None) -> N
                 "--app_identifier", cfg.app.bundle_id,
                 "--api_key_path", str(api_key_path),
                 "--screenshots_path", str(screenshots_root),
+                # Without an explicit --metadata_path, deliver still
+                # validates locale directory names against its own default
+                # (./fastlane/metadata, relative to cwd) even with
+                # --skip_metadata true — and that default contains our
+                # "android"/"ios" split, which it then rejects "ios" itself
+                # as an invalid locale name. Point it at the same
+                # fastlane/metadata/ios used by push_ios_metadata so it
+                # validates (and finds nothing to touch, since metadata is
+                # skipped) the right directory instead.
+                "--metadata_path", str(cfg.app.flutter_dir / "fastlane" / "metadata" / "ios"),
                 "--skip_screenshots", "false",
                 "--skip_metadata", "true",
                 "--skip_binary_upload", "true",
