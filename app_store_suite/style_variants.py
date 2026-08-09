@@ -7,6 +7,11 @@ from __future__ import annotations
 
 VARIANTS: dict[str, dict] = {
     "minimal": {},  # config's own style, unchanged
+    "colorful": {
+        "background_mode": "gradient",
+        "font_bold": "PlaypenSans-Bold.ttf",
+        "font_regular": "PlaypenSans-Regular.ttf",
+    },
     "gradient": {"background_mode": "gradient"},
     "tilted": {"layout": "tilted"},
     "playful": {"background_mode": "solid", "decoration": "shapes"},

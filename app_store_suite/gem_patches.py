@@ -95,7 +95,6 @@ PATCHES = [
             "        \"still processing, check App Store Connect directly; it usually \"\\\n"
             "        \"finishes shortly after this run exits.\"\n"
             "      )\n"
-            "    end\n"
         ),
     ),
 ]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -66,6 +67,32 @@ def _android_locale(cfg: StudioConfig, lang: str) -> str:
     if lang == "en":
         return "en-US"
     return f"{lang}-{lang.upper()}"
+
+
+def _android_listing_version_code(cfg: StudioConfig) -> str:
+    """Version code on the internal track — supply needs an existing release
+    anchor for listing edits even when APK/changelogs/images are skipped."""
+    result = subprocess.run(
+        [
+            "bundle", "exec", "fastlane", "run", "google_play_track_version_codes",
+            f"json_key:{cfg.app.play_json_key}",
+            f"package_name:{cfg.app.android_package_name}",
+            "track:internal",
+        ],
+        cwd=cfg.app.flutter_dir,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise PushError(
+            f"Could not read internal-track version codes: {result.stderr or result.stdout}"
+        )
+    codes = [int(m) for m in re.findall(r"\b(\d+)\b", result.stdout.split("Result:")[-1])]
+    if not codes:
+        raise PushError(
+            "No release on Play internal track — upload a build before pushing listing metadata"
+        )
+    return str(max(codes))
 
 
 def _ios_locale(cfg: StudioConfig, lang: str) -> str:
@@ -142,12 +169,7 @@ def push_android_metadata(cfg: StudioConfig, langs: list[str] | None = None) -> 
             "--skip_upload_changelogs", "true",
             "--skip_upload_metadata", "false",
             "--track", "internal",
-            # Without this, fastlane supply's default (false) sends every
-            # change straight to Google's own review queue as part of
-            # committing the edit — there is no separate "submit for review"
-            # step to skip like there is on iOS, this *is* the equivalent.
-            # true keeps the edit as an unpublished draft you review/publish
-            # yourself in Play Console.
+            "--version_code", _android_listing_version_code(cfg),
             "--changes_not_sent_for_review", "true",
         ],
         cwd=cfg.app.flutter_dir,
