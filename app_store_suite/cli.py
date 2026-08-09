@@ -92,7 +92,13 @@ def cmd_setup(args: argparse.Namespace) -> None:
 
 def cmd_auto_capture(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
-    run_auto_capture(cfg, only_device=args.device, render_delay=args.render_delay, lang=args.lang)
+    run_auto_capture(
+        cfg,
+        only_device=args.device,
+        render_delay=args.render_delay,
+        warmup_delay=args.warmup_delay,
+        lang=args.lang,
+    )
 
 
 def cmd_compose(args: argparse.Namespace) -> None:
@@ -294,7 +300,19 @@ def main(argv: list[str] | None = None) -> None:
     p_auto.add_argument("--config", required=True, help="Path to the app_store_suite.yaml config file (see `appstoresuite init`)")
     p_auto.add_argument("--device", help="Only capture this device key from the config")
     p_auto.add_argument(
-        "--render-delay", type=float, default=6.0, help="Seconds to wait after opening a deep link before screenshotting (give network images, animations, and async data time to settle)"
+        "--render-delay",
+        type=float,
+        default=None,
+        help="Seconds to wait after opening a deep link before screenshotting (give network "
+        "images, animations, and async data time to settle). Defaults to auto_capture.render_delay "
+        "in the config (6 if unset).",
+    )
+    p_auto.add_argument(
+        "--warmup-delay",
+        type=float,
+        default=None,
+        help="Seconds to wait after flutter run reports ready, before the first deep link "
+        "(splash/bootstrap). Defaults to auto_capture.warmup_delay in the config (0 if unset).",
     )
     p_auto.add_argument(
         "--lang",

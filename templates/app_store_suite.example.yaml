@@ -43,6 +43,11 @@ devices:
   android_phone:
     avd: "Medium_Phone" # any AVD name; `appstoresuite setup` creates missing ones
 
+# Optional timing for `auto-capture` (overridable via --warmup-delay / --render-delay).
+# auto_capture:
+#   warmup_delay: 15 # after flutter run is ready, before the first deep link
+#   render_delay: 6  # after each deep link, before screenshotting
+
 # shots:
 #   - id: home
 #     route: shot/home

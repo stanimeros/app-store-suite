@@ -147,32 +147,73 @@ def _screen_size(serial: str) -> tuple[int, int] | None:
     return None
 
 
-def force_portrait(serial: str) -> None:
+def _avd_name(serial: str) -> str | None:
+    result = subprocess.run(
+        [_adb(), "-s", serial, "emu", "avd", "name"], capture_output=True, text=True
+    )
+    if not result.stdout.strip():
+        return None
+    return result.stdout.strip().splitlines()[0].strip()
+
+
+def _avd_landscape_native(avd_name: str) -> bool:
+    config = Path.home() / ".android" / "avd" / f"{avd_name}.avd" / "config.ini"
+    if not config.is_file():
+        return False
+    width, height = None, None
+    for line in config.read_text().splitlines():
+        if line.startswith("hw.lcd.width="):
+            width = int(line.split("=", 1)[1].strip())
+        elif line.startswith("hw.lcd.height="):
+            height = int(line.split("=", 1)[1].strip())
+    return width is not None and height is not None and width > height
+
+
+def _user_rotation(serial: str, rotation: int) -> None:
+    subprocess.run(
+        [_adb(), "-s", serial, "shell", "settings", "put", "system", "user_rotation", str(rotation)],
+        capture_output=True,
+    )
+
+
+def force_portrait(serial: str, avd_name: str | None = None) -> None:
     """Locks the emulator to portrait, disabling auto-rotate first. Some AVDs
     have a landscape-native hardware profile (Pixel Tablet's `hw.lcd.width` >
     `hw.lcd.height` in its config.ini, matching a real tablet held
     horizontally) — Android's rotation values are relative to a device's own
     natural orientation, so `user_rotation=0` means landscape on those, not
     portrait like it does on a phone. Rather than assume, this sets rotation
-    0 and checks the actual resulting screen size, switching to rotation 1 if
-    that's still landscape. Store screenshots are portrait for every device
-    app-store-suite composes for, so this is unconditional, not a config
-    option.
+    0 and checks the actual resulting screen size, switching to rotation 3 or
+    1 if that's still landscape. Store screenshots are portrait for every
+    device app-store-suite composes for, so this is unconditional, not a
+    config option.
     """
+    if avd_name is None:
+        avd_name = _avd_name(serial)
+
     subprocess.run(
         [_adb(), "-s", serial, "shell", "settings", "put", "system", "accelerometer_rotation", "0"],
         capture_output=True,
     )
-    subprocess.run(
-        [_adb(), "-s", serial, "shell", "settings", "put", "system", "user_rotation", "0"],
-        capture_output=True,
-    )
+
+    _user_rotation(serial, 0)
+    time.sleep(0.4)
     size = _screen_size(serial)
-    if size and size[0] > size[1]:  # still landscape (width > height) — rotate 90°
-        subprocess.run(
-            [_adb(), "-s", serial, "shell", "settings", "put", "system", "user_rotation", "1"],
-            capture_output=True,
-        )
+    landscape_native = (size and size[0] > size[1]) or (
+        avd_name is not None and _avd_landscape_native(avd_name)
+    )
+
+    if landscape_native:
+        # Rotation 1 (90°) leaves some landscape-native AVDs (e.g. Pixel Tablet)
+        # portrait-sized but with the framebuffer still sideways — try 3 first.
+        for rot in (3, 1):
+            _user_rotation(serial, rot)
+            time.sleep(0.4)
+            size = _screen_size(serial)
+            if size and size[1] >= size[0]:
+                break
+    else:
+        _user_rotation(serial, 0)
 
 
 def open_url(serial: str, url: str) -> None:

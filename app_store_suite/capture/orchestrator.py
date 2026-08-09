@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from contextlib import contextmanager
 
 from ..config import DeviceConfig, StudioConfig
@@ -7,7 +8,12 @@ from . import android, flutter_app, ios
 
 
 @contextmanager
-def device_session(cfg: StudioConfig, key: str, device: DeviceConfig):
+def device_session(
+    cfg: StudioConfig,
+    key: str,
+    device: DeviceConfig,
+    warmup_delay: float = 0.0,
+):
     """Boots the device (if needed), launches the app, and yields (take_screenshot,
     open_url) — tearing both down afterward. Used by auto-capture, the only capture
     path app-store-suite has (see autocapture.py).
@@ -23,7 +29,7 @@ def device_session(cfg: StudioConfig, key: str, device: DeviceConfig):
         ios.boot(udid)
         identifier = udid
         take_screenshot = lambda dest: ios.screenshot(udid, dest)  # noqa: E731
-        open_url = lambda url: ios.open_url(udid, url)  # noqa: E731
+        open_url = lambda url: ios.open_url(udid, url, cfg.app.name)  # noqa: E731
     else:
         existing_serial = android.find_running_serial(device.identifier)
         if existing_serial:
@@ -36,7 +42,7 @@ def device_session(cfg: StudioConfig, key: str, device: DeviceConfig):
             identifier = android.wait_for_serial()
             print(f"Emulator ready as {identifier}")
             was_running = False
-        android.force_portrait(identifier)
+        android.force_portrait(identifier, device.identifier)
         take_screenshot = lambda dest: android.screenshot(identifier, dest)  # noqa: E731
         open_url = lambda url: android.open_url(identifier, url)  # noqa: E731
 
@@ -45,6 +51,14 @@ def device_session(cfg: StudioConfig, key: str, device: DeviceConfig):
         print(f"Launching {cfg.app.name} (flutter run)... this can take a minute")
         flutter_proc, log_path = flutter_app.launch(cfg.app.flutter_dir, identifier)
         flutter_app.wait_until_ready(log_path)
+        if warmup_delay > 0:
+            print(
+                f"  warming up {warmup_delay:.0f}s after launch "
+                "(splash/bootstrap before first shot)..."
+            )
+            time.sleep(warmup_delay)
+        if device.kind == "android":
+            android.force_portrait(identifier, device.identifier)
         yield take_screenshot, open_url
     finally:
         if flutter_proc:

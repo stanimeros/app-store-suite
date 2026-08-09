@@ -55,6 +55,16 @@ class ShotConfig:
 
 
 @dataclass
+class AutoCaptureConfig:
+    """Timing knobs for `auto-capture` — overridable per run via CLI flags."""
+
+    # Seconds to wait after `flutter run` reports ready, before the first deep link.
+    # Covers cold-start splash, Firebase/content bootstrap, etc.
+    warmup_delay: float = 0.0
+    render_delay: float = 6.0
+
+
+@dataclass
 class StyleConfig:
     background_color: str = "#FAFAF8"
     title_color: str = "#1A1A1A"
@@ -90,6 +100,7 @@ class StudioConfig:
     config_path: Path
     languages: list[str] = field(default_factory=lambda: ["en"])
     shots: list[ShotConfig] = field(default_factory=list)
+    auto_capture: AutoCaptureConfig = field(default_factory=AutoCaptureConfig)
     # Maps our language code -> store-specific locale code, e.g. {"en": "en-US"}.
     # Only needed where they differ; unmapped languages are tried as-is first, then
     # against a few common variants (see store_listing.py's _resolve_locale).
@@ -239,7 +250,21 @@ def load_config(path: str | Path) -> StudioConfig:
 
     store_locales = raw.get("store_locales") or {}
 
+    ac_raw = raw.get("auto_capture") or {}
+    if not isinstance(ac_raw, dict):
+        raise ConfigError(f"{path}: 'auto_capture' must be a mapping")
+    auto_capture = AutoCaptureConfig(
+        warmup_delay=float(ac_raw.get("warmup_delay", 0)),
+        render_delay=float(ac_raw.get("render_delay", 6.0)),
+    )
+
     return StudioConfig(
-        app=app, devices=devices, style=style, config_path=path, languages=languages,
-        shots=shots, store_locales=store_locales,
+        app=app,
+        devices=devices,
+        style=style,
+        config_path=path,
+        languages=languages,
+        shots=shots,
+        store_locales=store_locales,
+        auto_capture=auto_capture,
     )

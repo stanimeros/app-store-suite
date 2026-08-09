@@ -14,7 +14,8 @@ class AutoCaptureError(RuntimeError):
 def run_auto_capture(
     cfg: StudioConfig,
     only_device: str | None = None,
-    render_delay: float = 6.0,
+    render_delay: float | None = None,
+    warmup_delay: float | None = None,
     lang: str | None = None,
 ) -> None:
     """Unattended capture: for every configured shot, opens its deep link and
@@ -46,12 +47,21 @@ def run_auto_capture(
             f"app.deep_link_scheme is not set in {cfg.config_path} — required for auto-capture"
         )
 
+    effective_render_delay = (
+        render_delay if render_delay is not None else cfg.auto_capture.render_delay
+    )
+    effective_warmup_delay = (
+        warmup_delay if warmup_delay is not None else cfg.auto_capture.warmup_delay
+    )
+
     devices = {only_device: cfg.devices[only_device]} if only_device else cfg.devices
     langs: list[str | None] = [s.strip() for s in lang.split(",")] if lang else [None]
 
     for key, device in devices.items():
         print(f"\n=== {key} ({device.identifier}) ===")
-        with device_session(cfg, key, device) as (take_screenshot, open_url):
+        with device_session(
+            cfg, key, device, warmup_delay=effective_warmup_delay
+        ) as (take_screenshot, open_url):
             for one_lang in langs:
                 titles_lang = one_lang or cfg.default_language
                 existing_titles = titles_store.load_titles(cfg, titles_lang)
@@ -66,7 +76,7 @@ def run_auto_capture(
                     label = f"{one_lang}/{shot.id}" if one_lang else shot.id
                     print(f"[{key}] {label}: opening {url}")
                     open_url(url)
-                    time.sleep(render_delay)
+                    time.sleep(effective_render_delay)
 
                     dest = raw_base / key / f"{shot.id}.png"
                     take_screenshot(dest)
