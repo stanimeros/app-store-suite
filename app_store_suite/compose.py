@@ -495,9 +495,14 @@ def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) ->
     if only_device is None and ios_dest_dir.exists():
         shutil.rmtree(ios_dest_dir)
 
+    # Only clear the screenshot category subfolders, not the whole images/ dir —
+    # that dir also holds icon.png/featureGraphic.png (written by `store-icon`/
+    # `feature-graphic`, not by compose), which a blanket rmtree would silently
+    # destroy on every recompose.
     android_images_dir = cfg.android_images_dir(lang)
     if only_device is None and android_images_dir.exists():
-        shutil.rmtree(android_images_dir)
+        for category_dir in ("phoneScreenshots", "sevenInchScreenshots", "tenInchScreenshots"):
+            shutil.rmtree(android_images_dir / category_dir, ignore_errors=True)
 
     ios_n = 1
     for device_key, device in devices.items():

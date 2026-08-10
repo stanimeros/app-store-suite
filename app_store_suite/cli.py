@@ -19,9 +19,11 @@ from .gem_patches import apply_known_patches
 from .icons import generate_play_store_icon
 from .init import scaffold_project
 from . import push as push_mod
+from . import store_listing
 from .store_listing import fetch_current_listing, generate_store_listing
 from .style_preview import generate_previews
 from .style_variants import VARIANTS
+from .validate import validate_all
 
 DEFAULT_SYSTEM_IMAGE = "system-images;android-37.0;google_apis_playstore_ps16k;arm64-v8a"
 DEFAULT_DEVICE_PROFILE = {"phone": "pixel_6", "tablet": "pixel_tablet"}
@@ -163,7 +165,18 @@ def cmd_feature_graphic(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
     lang = args.lang or cfg.default_language
     headline = args.headline or f"{cfg.app.name}"
-    dest = generate_feature_graphic(cfg, lang, headline, args.subtitle or "")
+    # Falls back to the already-drafted Play short description rather than leaving
+    # the graphic subtitle-less by default — an empty subtitle is easy to miss
+    # (nothing errors, the graphic just renders with one less line of copy) and
+    # wastes space on the one asset most likely to be a store's very first
+    # impression. Pass --subtitle explicitly to override.
+    subtitle = args.subtitle or store_listing.read_field(cfg, lang, "play_short_description")
+    if not subtitle:
+        print(
+            "Warning: no --subtitle given and no play_short_description drafted yet for "
+            f"'{lang}' — feature graphic will have no subtitle line."
+        )
+    dest = generate_feature_graphic(cfg, lang, headline, subtitle)
     print(f"Feature graphic written to {dest}")
 
 
@@ -263,11 +276,39 @@ _PUSH_FUNCS = {
 }
 
 
+def cmd_validate(args: argparse.Namespace) -> None:
+    cfg = load_config(args.config)
+    langs = args.lang.split(",") if args.lang else None
+    issues = validate_all(cfg, langs)
+    if not issues:
+        print("No issues found.")
+        return
+    for issue in issues:
+        print(f"  {'ERROR' if issue.kind == 'limit' else 'WARN '} {issue}")
+    limit_issues = [i for i in issues if i.kind == "limit"]
+    if limit_issues:
+        raise SystemExit(f"{len(limit_issues)} field(s) over their character limit.")
+
+
 def cmd_push(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
     platforms = ["android", "ios"] if args.platform == "both" else [args.platform]
     targets = ["metadata", "screenshots", "images"] if args.what == "all" else [args.what]
     langs = args.lang.split(",") if args.lang else None
+
+    if "metadata" in targets:
+        issues = validate_all(cfg, langs)
+        limit_issues = [i for i in issues if i.kind == "limit"]
+        if limit_issues:
+            for issue in limit_issues:
+                print(f"  ERROR {issue}")
+            raise SystemExit(
+                f"{len(limit_issues)} field(s) over their character limit — fix before pushing metadata "
+                "(or rerun with --what screenshots,images to skip metadata)."
+            )
+        for issue in issues:
+            if issue.kind == "duplicate":
+                print(f"  WARN {issue}")
 
     for platform in platforms:
         for target in targets:
@@ -461,6 +502,18 @@ def main(argv: list[str] | None = None) -> None:
         "--lang", help="Comma-separated language codes to push (defaults to all configured languages)"
     )
     p_push.set_defaults(func=cmd_push)
+
+    p_validate = sub.add_parser(
+        "validate",
+        help="Check shot titles/subtitles and store listing text for over-limit fields "
+        "(error) and near-duplicate copy across fields (warning) — also run "
+        "automatically before `push`'s metadata step",
+    )
+    p_validate.add_argument("--config", required=True, help="Path to the app_store_suite.yaml config file (see `appstoresuite init`)")
+    p_validate.add_argument(
+        "--lang", help="Comma-separated language codes to check (defaults to all configured languages)"
+    )
+    p_validate.set_defaults(func=cmd_validate)
 
     args = parser.parse_args(argv)
     try:
