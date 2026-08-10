@@ -106,7 +106,10 @@ def cmd_compose(args: argparse.Namespace) -> None:
     langs = [args.lang] if args.lang else cfg.languages
     for lang in langs:
         outputs = compose_all(cfg, lang, only_device=args.device)
-        print(f"\n[{lang}] {len(outputs)} store screenshot(s) written under {cfg.store_dir(lang)}")
+        print(
+            f"\n[{lang}] {len(outputs)} store screenshot(s) written to "
+            f"{cfg.ios_screenshots_dir(lang)} and {cfg.android_images_dir(lang)}"
+        )
 
 
 def cmd_style_preview(args: argparse.Namespace) -> None:
@@ -167,15 +170,19 @@ def cmd_feature_graphic(args: argparse.Namespace) -> None:
 def cmd_store_listing(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
     lang = args.lang or cfg.default_language
-    dest = generate_store_listing(cfg, lang)
-    print(f"Store listing 'proposed' copy written to {dest}")
+    dests = generate_store_listing(cfg, lang)
+    print(f"Store listing 'proposed' copy written to {len(dests)} file(s):")
+    for path in dests:
+        print(f"  {path}")
 
 
 def cmd_fetch_listing(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
     lang = args.lang or cfg.default_language
-    dest = fetch_current_listing(cfg, lang)
-    print(f"Store listing 'current' copy fetched into {dest}")
+    dests = fetch_current_listing(cfg, lang)
+    print(f"Store listing 'current' copy fetched into {len(dests)} file(s) (committed as baseline):")
+    for path in dests:
+        print(f"  {path}")
 
 
 def cmd_translate_titles(args: argparse.Namespace) -> None:

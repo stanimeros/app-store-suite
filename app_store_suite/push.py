@@ -8,7 +8,6 @@ import tempfile
 from pathlib import Path
 
 from .config import AppConfig, StudioConfig
-from .store_listing import load_listing
 
 # KNOWN LIMITATION: every Android push below passes
 # --changes_not_sent_for_review true, which is *supposed* to keep the edit as
@@ -24,20 +23,6 @@ from .store_listing import load_listing
 # content is normally fast/automated, unlike binary review, so this has
 # been judged an acceptable tradeoff over disabling the push entirely.
 
-_PLAY_FIELDS = {
-    "play_app_name": "title.txt",
-    "play_short_description": "short_description.txt",
-    "play_full_description": "full_description.txt",
-}
-_IOS_FIELDS = {
-    "ios_app_name": "name.txt",
-    "ios_subtitle": "subtitle.txt",
-    "ios_promotional_text": "promotional_text.txt",
-    "ios_keywords": "keywords.txt",
-    "ios_description": "description.txt",
-}
-
-
 class PushError(RuntimeError):
     pass
 
@@ -51,22 +36,6 @@ def _run(cmd: list[str], cwd: Path) -> None:
     result = subprocess.run(cmd, cwd=cwd)
     if result.returncode != 0:
         raise PushError(f"command failed ({result.returncode}): {' '.join(cmd)}")
-
-
-def _android_locale(cfg: StudioConfig, lang: str) -> str:
-    """Play Console locale for `lang` — its store_locales override, else `lang`
-    as-is if it already looks like a Play locale (has a region, e.g. "en-US"),
-    else the common `<lang>-<LANG>` guess Play expects for most languages
-    (e.g. "de" -> "de-DE", "fr" -> "fr-FR"). "en" is special-cased to "en-US"
-    since the naive `<lang>-<LANG>` guess produces "en-EN", which isn't a real
-    Play locale — English requires an actual region (en-US/en-GB/...)."""
-    if lang in cfg.store_locales:
-        return cfg.store_locales[lang]
-    if "-" in lang:
-        return lang
-    if lang == "en":
-        return "en-US"
-    return f"{lang}-{lang.upper()}"
 
 
 def _android_listing_version_code(cfg: StudioConfig) -> str:
@@ -93,19 +62,6 @@ def _android_listing_version_code(cfg: StudioConfig) -> str:
             "No release on Play internal track — upload a build before pushing listing metadata"
         )
     return str(max(codes))
-
-
-def _ios_locale(cfg: StudioConfig, lang: str) -> str:
-    """App Store Connect locale for `lang` — `lang` as-is, except "en" which
-    ASC requires a real region for (no bare "en" in its locale list, unlike
-    e.g. bare "el" which is valid) — defaults to "en-US". This intentionally
-    does NOT reuse `store_locales` (that's Play-shaped, e.g. Play's "el-GR"
-    vs ASC's plain "el") — there's no ASC-specific override in the config
-    yet, so other ambiguous codes (pt, zh, ...) need a manual rename of the
-    fastlane/metadata/ios/<locale> directory to whatever ASC expects."""
-    if lang == "en":
-        return "en-US"
-    return lang
 
 
 def _require_android_creds(app: AppConfig) -> None:
@@ -138,24 +94,15 @@ def _asc_api_key_file(app: AppConfig) -> Path:
 
 
 def push_android_metadata(cfg: StudioConfig, langs: list[str] | None = None) -> None:
-    """Writes each language's *proposed* Play listing copy (title/short/full
-    description — from `store_listing.json`, see `generate_store_listing`/
-    `save_proposed`) into fastlane/metadata/android/<locale>/ and uploads
-    metadata only (no images/screenshots/APK) via `fastlane supply`."""
+    """Uploads each language's Play listing copy (title/short/full description) —
+    no images/screenshots/APK — via `fastlane supply`. The text itself is written
+    directly to fastlane/metadata/android/<locale>/*.txt by `store-listing`/
+    `fetch-listing`; this just uploads what's already sitting there."""
     _require("bundle")
     _require_android_creds(cfg.app)
     langs = langs or cfg.languages
 
     metadata_root = cfg.app.flutter_dir / "fastlane" / "metadata" / "android"
-    for lang in langs:
-        listing = load_listing(cfg, lang)
-        locale_dir = metadata_root / _android_locale(cfg, lang)
-        locale_dir.mkdir(parents=True, exist_ok=True)
-        for field, filename in _PLAY_FIELDS.items():
-            text = listing.get(field, {}).get("proposed", "")
-            if text:
-                (locale_dir / filename).write_text(text)
-
     _run(
         [
             "bundle", "exec", "fastlane", "supply",
@@ -177,10 +124,11 @@ def push_android_metadata(cfg: StudioConfig, langs: list[str] | None = None) -> 
 
 
 def push_ios_metadata(cfg: StudioConfig, langs: list[str] | None = None) -> None:
-    """Writes each language's *proposed* App Store Connect listing copy (name/
-    subtitle/promotional text/keywords/description) into
-    fastlane/metadata/ios/<locale>/ and uploads metadata only (no screenshots,
-    no binary) via `fastlane deliver`.
+    """Uploads each language's App Store Connect listing copy (name/subtitle/
+    promotional text/keywords/description) — no screenshots, no binary — via
+    `fastlane deliver`. The text itself is written directly to
+    fastlane/metadata/ios/<locale>/*.txt by `store-listing`/`fetch-listing`; this
+    just uploads what's already sitting there.
 
     Known fastlane bug: on fastlane 2.237.0, `deliver`'s review-attachment
     step can crash with `Spaceship::ConnectAPI::Models.parse: No data` on
@@ -195,15 +143,6 @@ def push_ios_metadata(cfg: StudioConfig, langs: list[str] | None = None) -> None
     langs = langs or cfg.languages
 
     metadata_root = cfg.app.flutter_dir / "fastlane" / "metadata" / "ios"
-    for lang in langs:
-        listing = load_listing(cfg, lang)
-        locale_dir = metadata_root / _ios_locale(cfg, lang)
-        locale_dir.mkdir(parents=True, exist_ok=True)
-        for field, filename in _IOS_FIELDS.items():
-            text = listing.get(field, {}).get("proposed", "")
-            if text:
-                (locale_dir / filename).write_text(text)
-
     api_key_path = _asc_api_key_file(cfg.app)
     try:
         _run(
@@ -238,7 +177,7 @@ def push_android_images(cfg: StudioConfig, langs: list[str] | None = None) -> No
 
     metadata_root = cfg.app.flutter_dir / "fastlane" / "metadata" / "android"
     for lang in langs:
-        images_dir = metadata_root / _android_locale(cfg, lang) / "images"
+        images_dir = cfg.android_images_dir(lang)
         images_dir.mkdir(parents=True, exist_ok=True)
         if cfg.icon_path.exists():
             shutil.copyfile(cfg.icon_path, images_dir / "icon.png")
@@ -276,31 +215,14 @@ def push_android_screenshots(cfg: StudioConfig, langs: list[str] | None = None) 
     Console — no metadata text, no icon/feature graphic. Devices whose config
     key contains "tablet" go to both sevenInchScreenshots and
     tenInchScreenshots (Play doesn't distinguish the two from a single
-    source image); everything else goes to phoneScreenshots."""
+    source image); everything else goes to phoneScreenshots. `compose` already wrote
+    the images directly to fastlane/metadata/android/<locale>/images/<category>/ —
+    this just uploads what's already there."""
     _require("bundle")
     _require_android_creds(cfg.app)
     langs = langs or cfg.languages
 
     metadata_root = cfg.app.flutter_dir / "fastlane" / "metadata" / "android"
-    for lang in langs:
-        locale_dir = metadata_root / _android_locale(cfg, lang) / "images"
-        for device_key, device in cfg.devices.items():
-            if device.kind != "android":
-                continue
-            src_dir = cfg.store_dir(lang) / device_key
-            if not src_dir.is_dir():
-                continue
-            categories = (
-                ["sevenInchScreenshots", "tenInchScreenshots"]
-                if "tablet" in device_key
-                else ["phoneScreenshots"]
-            )
-            for category in categories:
-                dest_dir = locale_dir / category
-                dest_dir.mkdir(parents=True, exist_ok=True)
-                for i, src in enumerate(sorted(src_dir.glob("*.png")), start=1):
-                    shutil.copyfile(src, dest_dir / f"{i}_{src.stem}.png")
-
     _run(
         [
             "bundle", "exec", "fastlane", "supply",
@@ -327,10 +249,11 @@ def push_android_screenshots(cfg: StudioConfig, langs: list[str] | None = None) 
 
 
 def push_ios_screenshots(cfg: StudioConfig, langs: list[str] | None = None) -> None:
-    """Uploads each language's composed screenshots (from `compose`) to App
-    Store Connect — no metadata text, no binary. `deliver` auto-detects each
-    image's device-size bucket from its pixel dimensions, so every iOS
-    device's shots for a language are just dumped into one locale folder.
+    """Uploads each language's composed screenshots to App Store Connect — no
+    metadata text, no binary. `compose` already wrote them directly to
+    fastlane/screenshots/<locale>/; `deliver` auto-detects each image's device-size
+    bucket from its pixel dimensions, so every iOS device's shots for a language
+    just sit together in one locale folder already.
 
     One `deliver` invocation per language, not one call covering every
     locale: `--overwrite_screenshots true` is supposed to delete a locale's
@@ -341,31 +264,20 @@ def push_ios_screenshots(cfg: StudioConfig, langs: list[str] | None = None) -> N
     images — e.g. some of a language's own new uploads getting rejected as
     "too many screenshots" despite only 6 being sent. Isolating each
     language into its own `deliver` call, each pointed at a screenshots_path
-    containing only that locale's directory, avoids whatever cross-locale
+    containing only that locale's directory (copied into a scratch temp dir —
+    the one remaining copy here is just to satisfy that isolation, not a
+    second permanent copy of the screenshots), avoids whatever cross-locale
     interaction causes that miscount."""
     _require("bundle")
     _require_ios_creds(cfg.app)
     langs = langs or cfg.languages
 
-    screenshots_root = cfg.app.flutter_dir / "fastlane" / "screenshots"
     locale_dirs: dict[str, Path] = {}
     for lang in langs:
-        locale = _ios_locale(cfg, lang)
-        locale_dir = screenshots_root / locale
+        locale = cfg.ios_locale(lang)
+        locale_dir = cfg.ios_screenshots_dir(lang)
         if locale_dir.is_dir():
-            shutil.rmtree(locale_dir)
-        locale_dir.mkdir(parents=True, exist_ok=True)
-        n = 1
-        for device_key, device in cfg.devices.items():
-            if device.kind != "ios":
-                continue
-            src_dir = cfg.store_dir(lang) / device_key
-            if not src_dir.is_dir():
-                continue
-            for src in sorted(src_dir.glob("*.png")):
-                shutil.copyfile(src, locale_dir / f"{n}_{device_key}_{src.stem}.png")
-                n += 1
-        locale_dirs[locale] = locale_dir
+            locale_dirs[locale] = locale_dir
 
     metadata_path = cfg.app.flutter_dir / "fastlane" / "metadata" / "ios"
     api_key_path = _asc_api_key_file(cfg.app)

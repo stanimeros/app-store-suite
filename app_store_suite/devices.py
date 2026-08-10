@@ -10,6 +10,10 @@ from .config import DeviceConfig
 # Built by hand against the repo's directory listing (see plan) rather than guessed,
 # since frameit's naming doesn't line up with simulator/AVD names.
 FRAME_MAP: dict[str, dict[str, str]] = {
+    "iPhone 17": {
+        "offset_key": "iPhone 17",
+        "frame_file": "Apple iPhone 17 Black.png",
+    },
     "iPhone 17 Pro": {
         "offset_key": "iPhone 17 Pro",
         "frame_file": "Apple iPhone 17 Pro Silver.png",

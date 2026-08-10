@@ -31,7 +31,7 @@ def save_choice(cfg: StudioConfig, shot_id: str, variant: str) -> None:
         data[shot_id] = variant
         path = _path(cfg)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, indent=2))
+        path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
 
 def clear_choice(cfg: StudioConfig, shot_id: str) -> None:
@@ -39,7 +39,7 @@ def clear_choice(cfg: StudioConfig, shot_id: str) -> None:
         data = load_choices(cfg)
         if shot_id in data:
             del data[shot_id]
-            _path(cfg).write_text(json.dumps(data, indent=2))
+            _path(cfg).write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
 
 def resolve_style(cfg: StudioConfig, shot_id: str) -> StyleConfig:

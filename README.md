@@ -49,9 +49,14 @@ Alternatively, copy `templates/app_store_suite.example.yaml` into your Flutter a
 (e.g. as `app_store_suite.yaml`, alongside `pubspec.yaml`), and fill in `app.name`,
 `icon_source`, your devices, and (if you want `auto-capture`) `deep_link_scheme` +
 `shots:` — see "Auto-capture requirements" below. `flutter_dir: .` assumes the config
-sits at the repo root; adjust if not. Add `.appstoresuite/` to that app's own
-`.gitignore` — it's where all generated output (raw + composed screenshots, listing
-copy, style choices) is written, next to the config.
+sits at the repo root; adjust if not. Add `fastlane/appstoresuite/` to that app's
+own `.gitignore` — it's where this tool's own working data (raw captures, style
+choices, shot titles) lives, nested inside `fastlane/` but not part of what
+fastlane/App Store Connect/Play Console actually consume. Everything that *is*
+store-facing — composed screenshots, listing text, the Play icon/feature graphic —
+is written straight into the real `fastlane/screenshots/` and `fastlane/metadata/`
+layout `fastlane supply`/`fastlane deliver` already expect, so commit those
+normally (see "Composing screenshots" and "Listing metadata" below).
 
 If a device identifier isn't already in `app_store_suite/devices.py`'s `FRAME_MAP`,
 either add a frame mapping there or accept the procedural rounded-corner fallback
@@ -84,9 +89,10 @@ appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --lan
 # past the "Open in <App>?" dialog once per device instead of once per language.
 appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --lang en,el
 
-# Composites .appstoresuite/raw/<device>/<shot>.png into
-# .appstoresuite/<lang>/store/<device>/<shot>.png: device bezel frame (or the
-# procedural fallback), background, and the shot's title.
+# Composites fastlane/appstoresuite/raw/<device>/<shot>.png (device bezel frame or
+# the procedural fallback, background, the shot's title) straight into the real
+# fastlane output locations: fastlane/screenshots/<locale>/ for iOS,
+# fastlane/metadata/android/<locale>/images/<category>/ for Android.
 appstoresuite compose --config /path/to/your-app/app_store_suite.yaml
 
 # 512x512 Play Store app icon, resized from app.icon_source.
@@ -95,16 +101,18 @@ appstoresuite store-icon --config /path/to/your-app/app_store_suite.yaml
 # 1024x500 Play Store feature graphic.
 appstoresuite feature-graphic --config /path/to/your-app/app_store_suite.yaml --headline "Plan every trip"
 
-# Drafts "proposed" Google Play / App Store listing copy (app name, descriptions,
-# keywords) from the shots' titles/subtitles via the `claude` CLI, written into
-# .appstoresuite/<lang>/store_listing.json alongside "current" (see below).
+# Drafts Google Play / App Store listing copy (app name, descriptions, keywords)
+# from the shots' titles/subtitles via the `claude` CLI, writing each field
+# straight to its real fastlane/metadata/<platform>/<locale>/<field>.txt path
+# (the "proposed", not-yet-pushed copy — see "Listing metadata" below).
 # Character counts against each store's limits are computed in Python, not
 # trusted from the model's own output.
 appstoresuite store-listing --config /path/to/your-app/app_store_suite.yaml
 
 # Fetches the currently-live listing copy from App Store Connect (fastlane deliver)
-# and/or Play Console (fastlane supply) into "current" in the same JSON file,
-# leaving "proposed" untouched. Requires store credentials in the config (below).
+# and/or Play Console (fastlane supply) into those same files, then commits them as
+# a baseline — so `git diff -- fastlane/metadata/` shows only local edits made
+# since this fetch. Requires store credentials in the config (below).
 appstoresuite fetch-listing --config /path/to/your-app/app_store_suite.yaml
 
 # Translate one language's shot titles/subtitles into another via the `claude` CLI
@@ -156,7 +164,7 @@ things:
 ARB/localization strings aren't part of this contract — auto-capture runs the app in
 whatever locale the device/simulator is already set to. Composed titles/subtitles are
 generated separately per shot by `store-listing`/`translate-titles`, stored in
-`.appstoresuite/<lang>/titles.json`, independent of the app's own ARB files.
+`fastlane/appstoresuite/<lang>/titles.json`, independent of the app's own ARB files.
 
 Without `deep_link_scheme` + `shots:` configured, `auto-capture` refuses to run
 (fails fast with what's missing) — every other command still works.
@@ -180,11 +188,17 @@ trying to work around it by re-running multiple times.
 
 ## Listing metadata: current vs. proposed
 
-`.appstoresuite/<lang>/store_listing.json` holds one entry per field (app name,
-descriptions, keywords, etc.), each with a `current` value (what's actually live,
-pulled by `fetch-listing`) and a `proposed` value (a draft, from `store-listing` or
-hand-edited). Nothing is ever uploaded automatically — copy `proposed` into App Store
-Connect / Play Console's own listing forms yourself once you're happy with it.
+Each listing field (app name, descriptions, keywords, etc.) is a plain text file at
+its real fastlane path — `fastlane/metadata/ios/<locale>/name.txt`,
+`fastlane/metadata/android/<locale>/title.txt`, and so on, the same filenames
+`fastlane deliver`/`fastlane supply` themselves read and write. There's no separate
+JSON model: "current" (what's actually live) is whatever's last committed to that
+path in git; "proposed" (a draft from `store-listing`, or hand-edited) is the
+working-tree version. `git diff -- fastlane/metadata/` in the app's own repo IS the
+current-vs-proposed comparison — or `git show HEAD:fastlane/metadata/ios/en-US/name.txt`
+to see just the live value for one field. Nothing is ever uploaded automatically —
+review the diff, then `push` it (or copy it into App Store Connect / Play Console's
+own listing forms yourself) once you're happy with it.
 
 `fetch-listing` needs store credentials in the config — reuse whatever your Fastfile
 already uses for shipping:
@@ -209,11 +223,12 @@ store_locales:
   el: el-GR
 ```
 
-`fetch-listing` runs `fastlane deliver`/`fastlane supply` in a scratch
+`fetch-listing` runs `fastlane deliver`/`fastlane supply` straight against the real
 `fastlane/metadata/` directory inside the app's repo (their standard working
-format — dozens of per-field `.txt` files); app-store-suite reads what it needs
-from there into the JSON and deletes that scratch directory again immediately,
-so it doesn't linger as clutter.
+format — dozens of per-field `.txt` files); app-store-suite keeps only the fields it
+actually uses (see the field list in `store_listing.py`) and drops the rest, then
+stages+commits the kept files as a baseline (skipped if `flutter_dir` isn't a git
+repo, or nothing changed).
 
 ## Pushing metadata and screenshots live
 
@@ -233,14 +248,15 @@ appstoresuite push --config /path/to/your-app/app_store_suite.yaml --platform io
 appstoresuite push --config /path/to/your-app/app_store_suite.yaml --platform android --what images
 ```
 
-`--what metadata` pushes each language's *proposed* copy from
-`store_listing.json` (see above) — draft it with `store-listing` and review it
-before pushing; nothing here asks for confirmation. `--what screenshots`
-pushes whatever `compose` last wrote to `.appstoresuite/<lang>/store/`. `--what
-images` pushes the store icon (`store-icon`) and each language's feature
-graphic (`feature-graphic`) — Play only, since App Store Connect has no
-equivalent upload slot (the app icon ships inside the binary there); it's a
-no-op for `--platform ios`.
+`--what metadata` pushes each language's listing text straight from
+`fastlane/metadata/<platform>/<locale>/*.txt` (see above) — draft/review it with
+`store-listing`/`git diff` before pushing; nothing here asks for confirmation.
+`--what screenshots` pushes whatever `compose` last wrote directly into
+`fastlane/screenshots/`/`fastlane/metadata/android/<locale>/images/` — there's no
+separate copy step at push time anymore. `--what images` pushes the store icon
+(`store-icon`) and each language's feature graphic (`feature-graphic`) — Play
+only, since App Store Connect has no equivalent upload slot (the app icon ships
+inside the binary there); it's a no-op for `--platform ios`.
 
 Requires the same store credentials as `fetch-listing` (above). Android
 tablet screenshots (any device key containing `"tablet"`) go to both Play's

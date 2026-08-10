@@ -6,6 +6,7 @@ import io
 import math
 import random
 import re
+import shutil
 from collections import Counter
 from pathlib import Path
 
@@ -361,9 +362,11 @@ def render_shot(
     dest_override: Path | None = None,
 ) -> Path:
     """`style` defaults to `cfg.style`; pass an override (e.g. from style_choices or
-    a style_variants preset) to render this one shot differently. `dest_override`
-    writes elsewhere instead of the real store output (used by style-preview so
-    comparison renders don't clobber the actual composed images)."""
+    a style_variants preset) to render this one shot differently. `dest_override` is
+    the file to write — required; compose_all points it directly at the real fastlane
+    screenshots/images path, style-preview points it at a scratch comparison location."""
+    if dest_override is None:
+        raise ValueError("render_shot requires dest_override — there is no default output path")
     style = style or cfg.style
     canvas_w, canvas_h = devices_mod.store_resolution(device)
     raw = Image.open(raw_path)
@@ -459,29 +462,83 @@ def render_shot(
     paste_y = canvas_h - margin - framed_resized.height
     canvas.paste(framed_resized, (paste_x, paste_y), framed_resized)
 
-    dest = dest_override or (cfg.store_dir(lang) / device_key / f"{shot_id}.png")
+    dest = dest_override
     dest.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(dest)
     return dest
 
 
+def _android_categories(device_key: str) -> list[str]:
+    """Devices whose config key contains "tablet" go to both sevenInchScreenshots
+    and tenInchScreenshots (Play doesn't distinguish the two from a single source
+    image); everything else goes to phoneScreenshots."""
+    return ["sevenInchScreenshots", "tenInchScreenshots"] if "tablet" in device_key else ["phoneScreenshots"]
+
+
 def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) -> list[Path]:
+    """Renders raw captures straight into the real fastlane output locations —
+    fastlane/screenshots/<locale>/ for iOS, fastlane/metadata/android/<locale>/images/
+    <category>/ for Android — so there's no separate `.appstoresuite/<lang>/store/`
+    copy for `push` to duplicate later."""
     devices = {only_device: cfg.devices[only_device]} if only_device else cfg.devices
     titles = titles_store.load_titles(cfg, lang)
     outputs: list[Path] = []
     lang_raw_dir = cfg.raw_dir_for(lang)
     raw_root = lang_raw_dir if lang_raw_dir.exists() else cfg.raw_dir
+
+    ios_dest_dir = cfg.ios_screenshots_dir(lang)
+    # Full recompose (only_device unset) starts the iOS/Android locale dirs clean,
+    # mirroring the old push-time `--overwrite_screenshots` semantics — otherwise
+    # shots removed/renamed since the last compose would linger and get uploaded
+    # alongside the new ones. A single-device recompose leaves them alone so it
+    # doesn't wipe other devices.
+    if only_device is None and ios_dest_dir.exists():
+        shutil.rmtree(ios_dest_dir)
+
+    android_images_dir = cfg.android_images_dir(lang)
+    if only_device is None and android_images_dir.exists():
+        shutil.rmtree(android_images_dir)
+
+    ios_n = 1
     for device_key, device in devices.items():
         device_raw_dir = raw_root / device_key
         if not device_raw_dir.exists():
             continue
-        for raw_path in sorted(device_raw_dir.glob("*.png")):
+
+        android_dest_dirs: dict[str, Path] = {}
+        if device.kind == "android":
+            android_dest_dirs = {c: android_images_dir / c for c in _android_categories(device_key)}
+
+        for i, raw_path in enumerate(sorted(device_raw_dir.glob("*.png")), start=1):
             shot_id = raw_path.stem
             meta = titles.get(shot_id, {})
             title = meta.get("title") or shot_id.replace("_", " ").title()
             subtitle = meta.get("subtitle", "")
             style = style_choices.resolve_style(cfg, shot_id)
-            dest = render_shot(cfg, lang, device_key, device, shot_id, title, subtitle, raw_path, style=style)
-            outputs.append(dest)
-            print(f"  composed {dest}")
+
+            if device.kind == "ios":
+                dest = ios_dest_dir / f"{ios_n}_{device_key}_{shot_id}.png"
+                ios_n += 1
+                render_shot(
+                    cfg, lang, device_key, device, shot_id, title, subtitle, raw_path,
+                    style=style, dest_override=dest,
+                )
+                outputs.append(dest)
+                print(f"  composed {dest}")
+            else:
+                categories = list(android_dest_dirs.items())
+                _, primary_dir = categories[0]
+                primary_dest = primary_dir / f"{i}_{shot_id}.png"
+                render_shot(
+                    cfg, lang, device_key, device, shot_id, title, subtitle, raw_path,
+                    style=style, dest_override=primary_dest,
+                )
+                outputs.append(primary_dest)
+                print(f"  composed {primary_dest}")
+                for _, cat_dir in categories[1:]:
+                    cat_dir.mkdir(parents=True, exist_ok=True)
+                    extra_dest = cat_dir / f"{i}_{shot_id}.png"
+                    shutil.copyfile(primary_dest, extra_dest)
+                    outputs.append(extra_dest)
+                    print(f"  composed {extra_dest}")
     return outputs

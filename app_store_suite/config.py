@@ -119,9 +119,10 @@ class StudioConfig:
 
     @property
     def output_dir(self) -> Path:
-        """Output root, next to the config itself (which lives in the app's own repo,
-        e.g. alongside pubspec.yaml/l10n.yaml — not inside app-store-suite)."""
-        return self.config_path.parent / ".appstoresuite"
+        """Tool bookkeeping (raw captures, style choices, titles) — kept inside the
+        app's own fastlane/ dir, visible (not dot-prefixed) since fastlane/ is already
+        working-tree scratch space, not something browsed casually."""
+        return self.app.flutter_dir / "fastlane" / "appstoresuite"
 
     @property
     def raw_dir(self) -> Path:
@@ -144,17 +145,55 @@ class StudioConfig:
     def lang_dir(self, lang: str) -> Path:
         return self.output_dir / lang
 
-    def store_dir(self, lang: str) -> Path:
-        return self.lang_dir(lang) / "store"
-
     def titles_path(self, lang: str) -> Path:
         return self.lang_dir(lang) / "titles.json"
 
     def feature_graphic_path(self, lang: str) -> Path:
         return self.lang_dir(lang) / "feature_graphic.png"
 
-    def store_listing_path(self, lang: str) -> Path:
-        return self.lang_dir(lang) / "store_listing.json"
+    # --- Store-facing locale codes ------------------------------------------------
+
+    def android_locale(self, lang: str) -> str:
+        """Play Console locale for `lang` — its store_locales override, else `lang`
+        as-is if it already looks like a Play locale (has a region, e.g. "en-US"),
+        else the common `<lang>-<LANG>` guess Play expects for most languages (e.g.
+        "de" -> "de-DE", "fr" -> "fr-FR"). "en" is special-cased to "en-US" since the
+        naive `<lang>-<LANG>` guess produces "en-EN", which isn't a real Play locale —
+        English requires an actual region (en-US/en-GB/...)."""
+        if lang in self.store_locales:
+            return self.store_locales[lang]
+        if "-" in lang:
+            return lang
+        if lang == "en":
+            return "en-US"
+        return f"{lang}-{lang.upper()}"
+
+    def ios_locale(self, lang: str) -> str:
+        """App Store Connect locale for `lang` — `lang` as-is, except "en" which ASC
+        requires a real region for (no bare "en" in its locale list, unlike e.g. bare
+        "el" which is valid) — defaults to "en-US". This intentionally does NOT reuse
+        `store_locales` (that's Play-shaped, e.g. Play's "el-GR" vs ASC's plain "el") —
+        there's no ASC-specific override in the config yet, so other ambiguous codes
+        (pt, zh, ...) need a manual rename of the fastlane/metadata/ios/<locale> and
+        fastlane/screenshots/<locale> directories to whatever ASC expects."""
+        if lang == "en":
+            return "en-US"
+        return lang
+
+    # --- Real fastlane output paths (compose/store-listing/fetch-listing write
+    # directly here; push just uploads what's already in place) --------------------
+
+    def ios_screenshots_dir(self, lang: str) -> Path:
+        return self.app.flutter_dir / "fastlane" / "screenshots" / self.ios_locale(lang)
+
+    def android_images_dir(self, lang: str) -> Path:
+        return self.android_metadata_dir(lang) / "images"
+
+    def ios_metadata_dir(self, lang: str) -> Path:
+        return self.app.flutter_dir / "fastlane" / "metadata" / "ios" / self.ios_locale(lang)
+
+    def android_metadata_dir(self, lang: str) -> Path:
+        return self.app.flutter_dir / "fastlane" / "metadata" / "android" / self.android_locale(lang)
 
 
 def _require_key(d: dict, key: str, *, where: str, config_path: Path) -> Any:
