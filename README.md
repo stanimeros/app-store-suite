@@ -49,14 +49,17 @@ Alternatively, copy `templates/app_store_suite.example.yaml` into your Flutter a
 (e.g. as `app_store_suite.yaml`, alongside `pubspec.yaml`), and fill in `app.name`,
 `icon_source`, your devices, and (if you want `auto-capture`) `deep_link_scheme` +
 `shots:` — see "Auto-capture requirements" below. `flutter_dir: .` assumes the config
-sits at the repo root; adjust if not. Add `fastlane/appstoresuite/` to that app's
-own `.gitignore` — it's where this tool's own working data (raw captures, style
-choices, shot titles) lives, nested inside `fastlane/` but not part of what
-fastlane/App Store Connect/Play Console actually consume. Everything that *is*
-store-facing — composed screenshots, listing text, the Play icon/feature graphic —
-is written straight into the real `fastlane/screenshots/` and `fastlane/metadata/`
-layout `fastlane supply`/`fastlane deliver` already expect, so commit those
-normally (see "Composing screenshots" and "Listing metadata" below).
+sits at the repo root; adjust if not. `fastlane/appstoresuite/` is where this tool's
+own working data (raw captures, style choices, shot titles) lives, nested inside
+`fastlane/` but not part of what fastlane/App Store Connect/Play Console actually
+consume. Commit it normally rather than gitignoring it — raw captures are the
+expensive-to-redo part (they require an actual device/simulator auto-capture run),
+so they're worth keeping in git history rather than only on disk. Everything that
+*is* store-facing — composed screenshots, listing text, the Play icon/feature
+graphic — is written straight into the real `fastlane/screenshots/` and
+`fastlane/metadata/` layout `fastlane supply`/`fastlane deliver` already expect, so
+commit those normally too (see "Composing screenshots" and "Listing metadata"
+below).
 
 If a device identifier isn't already in `app_store_suite/devices.py`'s `FRAME_MAP`,
 either add a frame mapping there or accept the procedural rounded-corner fallback
