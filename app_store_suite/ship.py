@@ -103,6 +103,26 @@ def _fastlane(project_dir: Path, platform: str, lane: str) -> None:
     _run(["bundle", "exec", "fastlane", platform, lane], cwd=project_dir)
 
 
+# Default App Store Connect locale `deliver`/`pilot` fall back to — matches
+# StudioConfig.ios_locale's own "en" -> "en-US" default.
+_DEFAULT_IOS_LOCALE = "en-US"
+
+
+def _require_release_notes(project_dir: Path) -> None:
+    """TestFlight builds need "what's new" copy for testers — require it to already
+    be filled in at fastlane/metadata/ios/<locale>/release_notes.txt (the same file
+    `deliver` uploads for App Store release notes) rather than shipping a build
+    testers see with stale or blank notes."""
+    release_notes = (
+        project_dir / "fastlane" / "metadata" / "ios" / _DEFAULT_IOS_LOCALE / "release_notes.txt"
+    )
+    if not release_notes.exists() or not release_notes.read_text().strip():
+        raise ShipError(
+            f"{release_notes} is missing or empty — fill in what's new for this build "
+            "before shipping to TestFlight"
+        )
+
+
 def ship_ios(project_dir: Path, lane: str = "ship_testflight") -> bool:
     """Builds the ipa and uploads it to TestFlight via `fastlane ios <lane>`.
 
@@ -111,6 +131,7 @@ def ship_ios(project_dir: Path, lane: str = "ship_testflight") -> bool:
     was actually shipped).
     """
     _require("flutter")
+    _require_release_notes(project_dir)
     _fastlane(project_dir, "ios", lane)
     return not _lane_is_stub(project_dir, "ios")
 

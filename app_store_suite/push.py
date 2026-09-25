@@ -56,7 +56,8 @@ def _android_listing_version_code(cfg: StudioConfig) -> str:
         raise PushError(
             f"Could not read internal-track version codes: {result.stderr or result.stdout}"
         )
-    codes = [int(m) for m in re.findall(r"\b(\d+)\b", result.stdout.split("Result:")[-1])]
+    result_line = result.stdout.split("Result:")[-1].splitlines()[0]
+    codes = [int(m) for m in re.findall(r"\b(\d+)\b", result_line)]
     if not codes:
         raise PushError(
             "No release on Play internal track — upload a build before pushing listing metadata"

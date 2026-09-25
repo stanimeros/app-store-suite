@@ -127,6 +127,13 @@ platform :ios do
       UI.user_error!("pubspec.yaml build number (#{v[:code]}) must be greater than the highest live App Store Connect build number (#{highest_live}). Bump the +build number in pubspec.yaml and rebuild.")
     end
 
+    # appstoresuite's `ship_ios` already refuses to invoke this lane if this file
+    # is missing or empty — read here too so a direct `fastlane ios ship_testflight`
+    # call gets the same guarantee.
+    release_notes_path = File.join(REPO_ROOT, "fastlane", "metadata", "ios", "en-US", "release_notes.txt")
+    release_notes = File.exist?(release_notes_path) ? File.read(release_notes_path).strip : ""
+    UI.user_error!("#{release_notes_path} is missing or empty - fill in what's new for this build before shipping to TestFlight") if release_notes.empty?
+
     UI.message("Building iOS ipa")
     Bundler.with_unbundled_env { sh("bash -lc 'cd #{REPO_ROOT} && flutter build ipa'") }
 
@@ -140,6 +147,7 @@ platform :ios do
       api_key: api_key,
       ipa: ipa_path,
       app_identifier: IOS_BUNDLE_ID,
+      changelog: release_notes,
       skip_waiting_for_build_processing: true,
       skip_submission: true
     )
