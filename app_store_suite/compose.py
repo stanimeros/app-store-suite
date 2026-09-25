@@ -1,20 +1,16 @@
 from __future__ import annotations
 
-import colorsys
 import hashlib
-import io
 import math
-import random
 import re
 import shutil
-from collections import Counter
 from pathlib import Path
 
 from fontTools.ttLib import TTFont
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageStat
 
 from . import devices as devices_mod
-from . import style_choices, titles_store
+from . import titles_store
 from .config import DeviceConfig, StudioConfig, StyleConfig
 from .frames import fetch as frames_fetch
 
@@ -74,7 +70,7 @@ def _readable_text_color(
 ) -> tuple[int, int, int]:
     """Keeps the configured title_color if it already contrasts against this
     background; otherwise falls back to white-on-dark or near-black-on-light so text
-    stays legible regardless of background_mode/decoration."""
+    stays legible regardless of background color."""
     if abs(_luminance(bg_rgb) - _luminance(preferred_rgb)) > 110:
         return preferred_rgb
     return (255, 255, 255) if _luminance(bg_rgb) < 128 else (26, 26, 26)
@@ -165,172 +161,14 @@ def _procedural_frame(raw: Image.Image) -> Image.Image:
     return canvas
 
 
-def _background_color_for(
-    raw: Image.Image, style_background_hex: str, mode: str
-) -> tuple[int, int, int]:
-    """"solid" always uses the configured color. "auto" samples the raw screenshot's
-    own edge pixels (the app's chrome, not whatever photo/content sits mid-screen) and
-    lightens the result toward white if it's too dark for the (dark) title text."""
-    fallback = _hex_to_rgb(style_background_hex)
-    if mode != "auto":
-        return fallback
-
-    img = raw.convert("RGB")
-    w, h = img.size
-    strip = max(2, round(min(w, h) * 0.02))
-    edge_pixels = (
-        list(img.crop((0, 0, w, strip)).getdata())
-        + list(img.crop((0, h - strip, w, h)).getdata())
-        + list(img.crop((0, 0, strip, h)).getdata())
-        + list(img.crop((w - strip, 0, w, h)).getdata())
-    )
-    if not edge_pixels:
-        return fallback
-
-    color, _ = Counter(edge_pixels).most_common(1)[0]
-    r, g, b = color
-    luminance = 0.299 * r + 0.587 * g + 0.114 * b
-    if luminance < 180:
-        blend = 0.6
-        r = round(r + (255 - r) * blend)
-        g = round(g + (255 - g) * blend)
-        b = round(b + (255 - b) * blend)
-    return (r, g, b)
-
-
-def _accent_color_for(raw: Image.Image) -> tuple[int, int, int] | None:
-    """Picks a vivid, representative color from the screenshot's own content (not its
-    white/gray UI chrome) — e.g. the sky or a photo's dominant hue — for auto-deriving
-    gradient/decoration colors per shot. Returns None if nothing sufficiently colorful
-    is found (e.g. an all-white/gray screen), so callers can fall back sensibly."""
-    img = raw.convert("RGB").resize((64, 64))
-    buckets: Counter[tuple[int, int, int]] = Counter()
-    for r, g, b in img.getdata():
-        h, s, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
-        if s < 0.28 or v < 0.25 or v > 0.97:
-            continue  # skip near-gray, near-black, near-white pixels (typical UI chrome)
-        buckets[(r // 24 * 24, g // 24 * 24, b // 24 * 24)] += 1
-    if not buckets:
-        return None
-    return buckets.most_common(1)[0][0]
-
-
-def _auto_gradient_color2(raw: Image.Image, base_rgb: tuple[int, int, int]) -> tuple[int, int, int]:
-    accent = _accent_color_for(raw)
-    if accent is None:
-        return tuple(min(255, c + 40) for c in base_rgb)
-    return _lerp_color(accent, (255, 255, 255), 0.55)  # pastel-ify for a soft gradient
-
-
-def _auto_decoration_color(raw: Image.Image, fallback_rgb: tuple[int, int, int]) -> tuple[int, int, int]:
-    accent = _accent_color_for(raw)
-    return accent if accent is not None else fallback_rgb
-
-
 def _seed_for(shot_id: str) -> int:
-    """Deterministic per-shot seed so decoration/tilt choices stay stable across
+    """Deterministic per-shot seed so tilt direction stays stable across
     re-composing the same shot (and consistent across devices/languages for it)."""
     return int(hashlib.md5(shot_id.encode()).hexdigest()[:8], 16)
 
 
-def _lerp_color(c1: tuple[int, int, int], c2: tuple[int, int, int], t: float) -> tuple[int, int, int]:
-    return tuple(round(c1[i] + (c2[i] - c1[i]) * t) for i in range(3))
-
-
-def _gradient_background(w: int, h: int, color1: tuple[int, int, int], color2: tuple[int, int, int]) -> Image.Image:
-    column = Image.new("RGB", (1, h))
-    for y in range(h):
-        column.putpixel((0, y), _lerp_color(color1, color2, y / max(h - 1, 1)))
-    return column.resize((w, h), Image.BILINEAR)
-
-
-def _build_background(canvas_w: int, canvas_h: int, raw: Image.Image, style: StyleConfig) -> Image.Image:
-    if style.background_mode == "gradient":
-        color1 = _hex_to_rgb(style.background_color)
-        color2 = (
-            _hex_to_rgb(style.gradient_color2)
-            if style.gradient_color2
-            else _auto_gradient_color2(raw, color1)
-        )
-        return _gradient_background(canvas_w, canvas_h, color1, color2)
-    bg_color = _background_color_for(raw, style.background_color, style.background_mode)
-    return Image.new("RGB", (canvas_w, canvas_h), bg_color)
-
-
-def _apply_overlay(canvas: Image.Image, overlay: Image.Image) -> None:
-    """Alpha-composites an RGBA overlay onto an RGB canvas in place."""
-    composited = Image.alpha_composite(canvas.convert("RGBA"), overlay).convert("RGB")
-    canvas.paste(composited, (0, 0))
-
-
-def _draw_shape_decorations(canvas: Image.Image, style: StyleConfig, shot_id: str, raw: Image.Image) -> None:
-    """Soft, low-opacity blurred circles behind the device — no extra dependency."""
-    rng = random.Random(_seed_for(shot_id))
-    w, h = canvas.size
-    color = (
-        _hex_to_rgb(style.decoration_color)
-        if style.decoration_color
-        else _auto_decoration_color(raw, _hex_to_rgb(style.title_color))
-    )
-
-    overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
-    for _ in range(3):
-        radius = rng.uniform(0.18, 0.32) * min(w, h)
-        cx = rng.uniform(0.0, 1.0) * w
-        cy = rng.uniform(0.0, 1.0) * h
-        alpha = rng.randint(14, 26)
-        draw.ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=(*color, alpha))
-    overlay = overlay.filter(ImageFilter.GaussianBlur(min(w, h) * 0.04))
-    _apply_overlay(canvas, overlay)
-
-
-def _draw_svg_decoration(canvas: Image.Image, style: StyleConfig, shot_id: str, raw: Image.Image) -> None:
-    """Rasterizes one .svg from decoration_svg_dir (picked deterministically per shot),
-    tinted to decoration_color (or an accent color auto-sampled from this shot's own
-    screenshot if unset — the source file's own fill is always ignored) and placed in a
-    top corner behind the device, alternating corner and rotation per shot for variety."""
-    if not style.decoration_svg_dir or not style.decoration_svg_dir.is_dir():
-        return
-    files = sorted(style.decoration_svg_dir.glob("*.svg"))
-    if not files:
-        return
-
-    import cairosvg  # deferred: only needed when decoration_svg is actually configured
-
-    seed = _seed_for(shot_id)
-    svg_path = files[seed % len(files)]
-    w, h = canvas.size
-    target_h = round(h * 0.46)
-    png_bytes = cairosvg.svg2png(url=str(svg_path), output_height=target_h)
-    decoration = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
-
-    color = (
-        _hex_to_rgb(style.decoration_color)
-        if style.decoration_color
-        else _auto_decoration_color(raw, _hex_to_rgb(style.title_color))
-    )
-    tinted = Image.new("RGBA", decoration.size, (*color, 0))
-    tinted.putalpha(decoration.split()[3].point(lambda a: round(a * 0.30)))
-    angle = 14 if seed % 2 == 0 else -12
-    tinted = tinted.rotate(angle, expand=True, resample=Image.BICUBIC)
-
-    margin = round(w * 0.04)
-    overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    if (seed // 2) % 2 == 0:
-        px = w - tinted.width - margin
-    else:
-        px = margin - round(tinted.width * 0.2)
-    py = margin - round(h * 0.02)
-    overlay.paste(tinted, (px, py), tinted)
-    _apply_overlay(canvas, overlay)
-
-
-def _apply_decoration(canvas: Image.Image, style: StyleConfig, shot_id: str, raw: Image.Image) -> None:
-    if style.decoration == "shapes":
-        _draw_shape_decorations(canvas, style, shot_id, raw)
-    elif style.decoration == "svg":
-        _draw_svg_decoration(canvas, style, shot_id, raw)
+def _build_background(canvas_w: int, canvas_h: int, style: StyleConfig) -> Image.Image:
+    return Image.new("RGB", (canvas_w, canvas_h), _hex_to_rgb(style.background_color))
 
 
 def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
@@ -361,23 +199,21 @@ def render_shot(
     style: StyleConfig | None = None,
     dest_override: Path | None = None,
 ) -> Path:
-    """`style` defaults to `cfg.style`; pass an override (e.g. from style_choices or
-    a style_variants preset) to render this one shot differently. `dest_override` is
-    the file to write — required; compose_all points it directly at the real fastlane
-    screenshots/images path, style-preview points it at a scratch comparison location."""
+    """`style` defaults to `cfg.style`. `dest_override` is the file to write —
+    required; compose_all points it directly at the real fastlane screenshots/images
+    path."""
     if dest_override is None:
         raise ValueError("render_shot requires dest_override — there is no default output path")
     style = style or cfg.style
     canvas_w, canvas_h = devices_mod.store_resolution(device)
     raw = Image.open(raw_path)
 
-    canvas = _build_background(canvas_w, canvas_h, raw, style)
-    _apply_decoration(canvas, style, shot_id, raw)
+    canvas = _build_background(canvas_w, canvas_h, style)
 
     margin = round(canvas_w * _MARGIN_RATIO)
     top_padding = round(canvas_h * _TOP_PADDING_RATIO)
 
-    # Sampled after background+decoration, before any text is drawn, so the color
+    # Sampled after the background is drawn, before any text is drawn, so the color
     # picked reflects what text will actually sit on. The exact wrapped text height
     # isn't known yet, so this just samples a representative top band.
     sample_h = round(canvas_h * 0.2)
@@ -475,6 +311,56 @@ def _android_categories(device_key: str) -> list[str]:
     return ["sevenInchScreenshots", "tenInchScreenshots"] if "tablet" in device_key else ["phoneScreenshots"]
 
 
+_CONTACT_SHEET_THUMB_W = 300
+_CONTACT_SHEET_COLUMNS = 5
+_CONTACT_SHEET_LABEL_H = 28
+_CONTACT_SHEET_GAP = 12
+
+
+def _build_contact_sheet(image_paths: list[Path], dest: Path) -> Path | None:
+    """A single grid image of every composed screenshot, for glancing at a whole
+    batch (all devices/shots) at once instead of opening each file individually."""
+    if not image_paths:
+        return None
+
+    label_font = ImageFont.truetype(str(_FONTS_DIR / "Inter-Regular.ttf"), 16)
+    tiles: list[Image.Image] = []
+    for path in image_paths:
+        img = Image.open(path).convert("RGB")
+        thumb_h = round(img.height * (_CONTACT_SHEET_THUMB_W / img.width))
+        thumb = img.resize((_CONTACT_SHEET_THUMB_W, thumb_h), Image.LANCZOS)
+        tile = Image.new(
+            "RGB", (_CONTACT_SHEET_THUMB_W, thumb_h + _CONTACT_SHEET_LABEL_H), (240, 240, 240)
+        )
+        tile.paste(thumb, (0, 0))
+        ImageDraw.Draw(tile).text(
+            (4, thumb_h + 6), path.stem, font=label_font, fill=(20, 20, 20)
+        )
+        tiles.append(tile)
+
+    columns = min(_CONTACT_SHEET_COLUMNS, len(tiles))
+    rows = math.ceil(len(tiles) / columns)
+    row_heights = [
+        max((t.height for t in tiles[r * columns : (r + 1) * columns]), default=0) for r in range(rows)
+    ]
+    sheet_w = columns * _CONTACT_SHEET_THUMB_W + (columns - 1) * _CONTACT_SHEET_GAP
+    sheet_h = sum(row_heights) + (rows - 1) * _CONTACT_SHEET_GAP
+    sheet = Image.new("RGB", (sheet_w, sheet_h), (30, 30, 30))
+
+    y = 0
+    for r in range(rows):
+        row_tiles = tiles[r * columns : (r + 1) * columns]
+        x = 0
+        for tile in row_tiles:
+            sheet.paste(tile, (x, y))
+            x += _CONTACT_SHEET_THUMB_W + _CONTACT_SHEET_GAP
+        y += row_heights[r] + _CONTACT_SHEET_GAP
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(dest)
+    return dest
+
+
 def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) -> list[Path]:
     """Renders raw captures straight into the real fastlane output locations —
     fastlane/screenshots/<locale>/ for iOS, fastlane/metadata/android/<locale>/images/
@@ -483,6 +369,7 @@ def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) ->
     devices = {only_device: cfg.devices[only_device]} if only_device else cfg.devices
     titles = titles_store.load_titles(cfg, lang)
     outputs: list[Path] = []
+    primary_outputs: list[Path] = []  # excludes the tablet-category copies (same image, duplicated)
     lang_raw_dir = cfg.raw_dir_for(lang)
     raw_root = lang_raw_dir if lang_raw_dir.exists() else cfg.raw_dir
 
@@ -519,14 +406,13 @@ def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) ->
             meta = titles.get(shot_id, {})
             title = meta.get("title") or shot_id.replace("_", " ").title()
             subtitle = meta.get("subtitle", "")
-            style = style_choices.resolve_style(cfg, shot_id)
 
             if device.kind == "ios":
                 dest = ios_dest_dir / f"{ios_n}_{device_key}_{shot_id}.png"
                 ios_n += 1
                 render_shot(
                     cfg, lang, device_key, device, shot_id, title, subtitle, raw_path,
-                    style=style, dest_override=dest,
+                    dest_override=dest,
                 )
                 outputs.append(dest)
                 print(f"  composed {dest}")
@@ -536,7 +422,7 @@ def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) ->
                 primary_dest = primary_dir / f"{i}_{shot_id}.png"
                 render_shot(
                     cfg, lang, device_key, device, shot_id, title, subtitle, raw_path,
-                    style=style, dest_override=primary_dest,
+                    dest_override=primary_dest,
                 )
                 outputs.append(primary_dest)
                 print(f"  composed {primary_dest}")

@@ -7,7 +7,6 @@ dependencies = [
     "Pillow>=10.0",
     "PyYAML>=6.0",
     "fonttools>=4.0",
-    "CairoSVG>=2.7",
 ]
 
 [project.scripts]
