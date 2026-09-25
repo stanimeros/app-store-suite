@@ -87,18 +87,20 @@ def _readable_text_color(
     """Picks a text color that stays visible against `bg_rgb`, preferring one that
     still reads as "on brand": a vivid, deliberately-chosen `preferred_rgb` (e.g. a
     brand accent set in the yaml) is kept whenever it already contrasts enough. A
-    near-black/white "ink" preferred color is only kept as-is against a similarly
-    neutral background — against a colorful one (an AI-generated background is
-    rarely a flat neutral), a deeper/lighter shade of *that background's own hue*
-    is used instead, so e.g. a blue background gets a rich matching navy rather
-    than flat black. Only true neutral-on-neutral falls back to plain white/near-black."""
+    near-black/white "ink" preferred color is only kept as-is against a genuinely
+    neutral (gray/white/black) background — against anything with a discernible hue,
+    even a soft pastel tint (an AI-generated background is rarely a flat neutral), a
+    deeper/lighter shade of *that background's own hue* is used instead, so e.g. a
+    peachy cream background gets a warm matching brown, or a blue one a rich navy,
+    rather than flat black. Only true neutral-on-neutral falls back to plain
+    white/near-black."""
     contrasts = abs(_luminance(bg_rgb) - _luminance(preferred_rgb)) > 110
     bg_h, bg_s, _ = colorsys.rgb_to_hsv(*(c / 255 for c in bg_rgb))
     _, pref_s, _ = colorsys.rgb_to_hsv(*(c / 255 for c in preferred_rgb))
 
     if pref_s > 0.25 and contrasts:
         return preferred_rgb
-    if bg_s > 0.15:
+    if bg_s > 0.06:
         return _accent_from_hue(bg_h, bg_s, dark=_luminance(bg_rgb) >= 128)
     if contrasts:
         return preferred_rgb
