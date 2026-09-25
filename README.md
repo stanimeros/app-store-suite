@@ -49,6 +49,10 @@ just a lane-name-matching stub for you to fill in.
 
 All scaffolded files are copied from `templates/` next to this package (source of
 truth for `init` — edit them there if you want to change what new projects get).
+`templates/license_checker.yaml` is also the estate-wide source of truth for that
+file: `ai-assistant/maintenance` no longer keeps its own copy — its `bootstrap.sh`
+reads this one (via `$APP_STORE_SUITE_DIR`, default `~/Developer/app-store-suite`)
+and its Flutter checks point here. Changing the policy here changes it everywhere.
 
 Alternatively, copy `templates/app_store_suite.example.yaml` into your Flutter app's own repo root
 (e.g. as `app_store_suite.yaml`, alongside `pubspec.yaml`), and fill in `app.name`,
