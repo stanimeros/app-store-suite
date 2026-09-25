@@ -10,6 +10,27 @@ from .config import StudioConfig
 WIDTH, HEIGHT = 1024, 500
 
 
+def _icon_with_transparency(icon_path: Path) -> Image.Image:
+    """Most icon_source assets here are a flat-colored badge (e.g. a circular
+    logo) on a solid, fully-opaque background rather than a true transparent
+    PNG. Pasting that as-is (or under a plain rounded-rect mask) onto the
+    feature graphic's own background leaves the icon's flat fill showing as a
+    mismatched box around the badge. If the source already carries real
+    transparency, use it untouched; otherwise flood-fill the background color
+    from the corner (same approach as compose.py's device-frame silhouette
+    mask) so only the badge shape survives compositing."""
+    icon = Image.open(icon_path).convert("RGBA")
+    alpha = icon.split()[3]
+    if alpha.getextrema()[0] < 255:
+        return icon
+
+    rgb = icon.convert("RGB")
+    ImageDraw.floodfill(rgb, (0, 0), (128, 0, 0), thresh=24)
+    mask = rgb.split()[0].point(lambda r: 0 if r == 128 else 255)
+    icon.putalpha(mask)
+    return icon
+
+
 def _fit_single_line_font(
     draw: ImageDraw.ImageDraw,
     brand_font_name: str,
@@ -50,12 +71,8 @@ def generate_feature_graphic(
     icon_size = 220
     margin = 64
     if cfg.app.icon_source.exists():
-        icon = Image.open(cfg.app.icon_source).convert("RGBA").resize((icon_size, icon_size), Image.LANCZOS)
-        mask = Image.new("L", icon.size, 0)
-        ImageDraw.Draw(mask).rounded_rectangle(
-            [0, 0, icon_size, icon_size], radius=round(icon_size * 0.22), fill=255
-        )
-        canvas.paste(icon, (margin, (HEIGHT - icon_size) // 2), mask)
+        icon = _icon_with_transparency(cfg.app.icon_source).resize((icon_size, icon_size), Image.LANCZOS)
+        canvas.paste(icon, (margin, (HEIGHT - icon_size) // 2), icon)
         text_left = margin + icon_size + 36
     else:
         text_left = margin
