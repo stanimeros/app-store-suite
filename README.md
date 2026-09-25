@@ -109,10 +109,11 @@ appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --lan
 # for a quick at-a-glance review without opening each file individually.
 appstoresuite compose --config /path/to/your-app/app_store_suite.yaml
 
-# AI-generated backgrounds (see "Backgrounds" below) — generates 3 candidate sets,
-# then pins set 2 for the "home" shot so the next `compose` uses it.
-appstoresuite generate-bgs --config /path/to/your-app/app_store_suite.yaml --sets 3
-appstoresuite bg-pick --config /path/to/your-app/app_store_suite.yaml --shot home --set 2
+# AI-generated backgrounds (see "Backgrounds" below) — generates one candidate set
+# (each call generates exactly one; rerun to get another), then pins it for the
+# "home" shot so the next `compose` uses it.
+appstoresuite generate-bgs --config /path/to/your-app/app_store_suite.yaml
+appstoresuite bg-pick --config /path/to/your-app/app_store_suite.yaml --shot home --set 1
 
 # 512x512 Play Store app icon, resized from app.icon_source.
 appstoresuite store-icon --config /path/to/your-app/app_store_suite.yaml
@@ -420,16 +421,21 @@ that screenshot's own colors, no text, no UI — to sit behind the framed device
 title. There is no plain-color fallback: a shot with no background chosen simply
 isn't composed yet.
 
-Each run of `generate-bgs` writes one or more new numbered **sets** (never
-overwriting previous ones), with one generated image per shot per set, under
-`fastlane/appstoresuite/backgrounds/set<N>/<shot_id>.png`. Nothing is picked
-automatically — generate a few sets, look at them, then pin whichever set each shot
+Each run of `generate-bgs` writes exactly one new numbered **set** (never overwriting
+previous ones), with one generated image per shot, under
+`fastlane/appstoresuite/backgrounds/set<N>/<shot_id>.png` — one set per call by
+design, so you review it before generating another, rather than generating a pile of
+variants blind. If a shot's background isn't right, rerun `generate-bgs` for just
+that shot (optionally after adjusting `BACKGROUND_PROMPT` for a steer, the same way
+you'd revise a prompt). Nothing is picked automatically — pin whichever set each shot
 should use with `bg-pick`:
 
 ```bash
-# Generates 3 sets in one run (3 candidate backgrounds per shot to compare).
-appstoresuite generate-bgs --config /path/to/your-app/app_store_suite.yaml --sets 3
+appstoresuite generate-bgs --config /path/to/your-app/app_store_suite.yaml
+appstoresuite bg-pick --config /path/to/your-app/app_store_suite.yaml --shot home --set 1
 
+# Not happy with it? Generate another set for just that shot, then re-pick.
+appstoresuite generate-bgs --config /path/to/your-app/app_store_suite.yaml --shot home
 appstoresuite bg-pick --config /path/to/your-app/app_store_suite.yaml --shot home --set 2
 appstoresuite bg-pick --config /path/to/your-app/app_store_suite.yaml --list
 ```

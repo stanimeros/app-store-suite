@@ -123,8 +123,8 @@ def cmd_generate_bgs(args: argparse.Namespace) -> None:
     lang = args.lang or cfg.default_language
     shot_ids = args.shot.split(",") if args.shot else None
 
-    written = backgrounds.generate_backgrounds(cfg, device_key, lang, shot_ids, sets=args.sets)
-    print(f"\n{len(written)} background(s) written across {args.sets} set(s).")
+    written = backgrounds.generate_backgrounds(cfg, device_key, lang, shot_ids)
+    print(f"\n{len(written)} background(s) written to set{backgrounds.available_sets(cfg)[-1]}.")
     print("Review them under fastlane/appstoresuite/backgrounds/, then run "
           "'appstoresuite bg-pick' to choose a set per shot.")
 
@@ -390,7 +390,6 @@ def main(argv: list[str] | None = None) -> None:
     p_generate_bgs.add_argument("--device", help="Device key whose raw screenshots to use as the visual reference (defaults to the first configured device)")
     p_generate_bgs.add_argument("--lang", help="Language whose raw screenshots to use (defaults to the first configured language)")
     p_generate_bgs.add_argument("--shot", help="Comma-separated shot ids to generate (defaults to all shots)")
-    p_generate_bgs.add_argument("--sets", type=int, default=1, help="How many new numbered sets to generate in this run (default 1)")
     p_generate_bgs.set_defaults(func=cmd_generate_bgs)
 
     p_bg_pick = sub.add_parser(

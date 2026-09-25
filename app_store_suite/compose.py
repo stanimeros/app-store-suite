@@ -328,20 +328,23 @@ def _android_categories(device_key: str) -> list[str]:
 
 
 _CONTACT_SHEET_THUMB_W = 300
-_CONTACT_SHEET_COLUMNS = 5
 _CONTACT_SHEET_LABEL_H = 28
 _CONTACT_SHEET_GAP = 12
 
 
-def _build_contact_sheet(image_paths: list[Path], dest: Path) -> Path | None:
+def _build_contact_sheet(image_paths_by_device: dict[str, list[Path]], dest: Path) -> Path | None:
     """A single grid image of every composed screenshot, for glancing at a whole
-    batch (all devices/shots) at once instead of opening each file individually."""
-    if not image_paths:
+    batch (all devices/shots) at once instead of opening each file individually.
+    One row per device, holding all of that device's shots side by side — however
+    many there are (5, 6, 10, ...) — so a device's screenshots never spill onto a
+    row shared with another device's."""
+    device_rows = [paths for paths in image_paths_by_device.values() if paths]
+    if not device_rows:
         return None
 
     label_font = ImageFont.truetype(str(_FONTS_DIR / "Inter-Regular.ttf"), 16)
-    tiles: list[Image.Image] = []
-    for path in image_paths:
+
+    def _tile(path: Path) -> Image.Image:
         img = Image.open(path).convert("RGB")
         thumb_h = round(img.height * (_CONTACT_SHEET_THUMB_W / img.width))
         thumb = img.resize((_CONTACT_SHEET_THUMB_W, thumb_h), Image.LANCZOS)
@@ -352,25 +355,22 @@ def _build_contact_sheet(image_paths: list[Path], dest: Path) -> Path | None:
         ImageDraw.Draw(tile).text(
             (4, thumb_h + 6), path.stem, font=label_font, fill=(20, 20, 20)
         )
-        tiles.append(tile)
+        return tile
 
-    columns = min(_CONTACT_SHEET_COLUMNS, len(tiles))
-    rows = math.ceil(len(tiles) / columns)
-    row_heights = [
-        max((t.height for t in tiles[r * columns : (r + 1) * columns]), default=0) for r in range(rows)
-    ]
+    tile_rows = [[_tile(p) for p in row] for row in device_rows]
+    row_heights = [max(t.height for t in row) for row in tile_rows]
+    columns = max(len(row) for row in tile_rows)
     sheet_w = columns * _CONTACT_SHEET_THUMB_W + (columns - 1) * _CONTACT_SHEET_GAP
-    sheet_h = sum(row_heights) + (rows - 1) * _CONTACT_SHEET_GAP
+    sheet_h = sum(row_heights) + (len(tile_rows) - 1) * _CONTACT_SHEET_GAP
     sheet = Image.new("RGB", (sheet_w, sheet_h), (30, 30, 30))
 
     y = 0
-    for r in range(rows):
-        row_tiles = tiles[r * columns : (r + 1) * columns]
+    for row_tiles, row_h in zip(tile_rows, row_heights):
         x = 0
         for tile in row_tiles:
             sheet.paste(tile, (x, y))
             x += _CONTACT_SHEET_THUMB_W + _CONTACT_SHEET_GAP
-        y += row_heights[r] + _CONTACT_SHEET_GAP
+        y += row_h + _CONTACT_SHEET_GAP
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(dest)
@@ -385,7 +385,9 @@ def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) ->
     devices = {only_device: cfg.devices[only_device]} if only_device else cfg.devices
     titles = titles_store.load_titles(cfg, lang)
     outputs: list[Path] = []
-    primary_outputs: list[Path] = []  # excludes the tablet-category copies (same image, duplicated)
+    # Excludes the tablet-category copies (same image, duplicated); grouped by
+    # device so the contact sheet can give each device its own row.
+    primary_outputs_by_device: dict[str, list[Path]] = {device_key: [] for device_key in devices}
     lang_raw_dir = cfg.raw_dir_for(lang)
     raw_root = lang_raw_dir if lang_raw_dir.exists() else cfg.raw_dir
 
@@ -439,7 +441,7 @@ def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) ->
                     dest_override=dest, bg_image_path=bg_image_path,
                 )
                 outputs.append(dest)
-                primary_outputs.append(dest)
+                primary_outputs_by_device[device_key].append(dest)
                 print(f"  composed {dest}")
             else:
                 categories = list(android_dest_dirs.items())
@@ -450,7 +452,7 @@ def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) ->
                     dest_override=primary_dest, bg_image_path=bg_image_path,
                 )
                 outputs.append(primary_dest)
-                primary_outputs.append(primary_dest)
+                primary_outputs_by_device[device_key].append(primary_dest)
                 print(f"  composed {primary_dest}")
                 for _, cat_dir in categories[1:]:
                     cat_dir.mkdir(parents=True, exist_ok=True)
@@ -460,7 +462,7 @@ def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) ->
                     print(f"  composed {extra_dest}")
 
     sheet_dest = cfg.output_dir / f"contact_sheet_{lang}.png"
-    if _build_contact_sheet(primary_outputs, sheet_dest):
+    if _build_contact_sheet(primary_outputs_by_device, sheet_dest):
         print(f"  contact sheet: {sheet_dest}")
 
     return outputs

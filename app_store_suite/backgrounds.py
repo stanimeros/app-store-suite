@@ -110,14 +110,16 @@ def generate_backgrounds(
     device_key: str,
     lang: str,
     shot_ids: list[str] | None = None,
-    sets: int = 1,
 ) -> list[Path]:
-    """Generates `sets` new numbered background sets (numbering continues from
-    whatever sets already exist on disk), one image per shot per set, via the OpenAI
-    images API — each shot's own raw screenshot is passed in as the reference image
-    (no mask), so the model riffs on its colors/mood instead of starting from a blank
-    prompt. Nothing is picked automatically; run `bg-pick` afterwards to choose a set
-    per shot."""
+    """Generates one new numbered background set (numbering continues from whatever
+    sets already exist on disk), one image per shot, via the OpenAI images API — each
+    shot's own raw screenshot is passed in as the reference image (no mask), so the
+    model riffs on its colors/mood instead of starting from a blank prompt. Nothing is
+    picked automatically; run `bg-pick` afterwards to choose a set per shot.
+
+    Deliberately one set per call, not a batch: review each set before generating the
+    next, and pass a refined prompt/guide if you want another try at a shot, rather
+    than generating many variants blind."""
     api_key = _env_value(cfg, "OPENAI_API_KEY")
     if not api_key:
         raise BackgroundGenerationError("OPENAI_API_KEY is not set (add it to .env or export it)")
@@ -131,18 +133,16 @@ def generate_backgrounds(
         raise BackgroundGenerationError(f"No raw screenshots found in {raw_dir}")
 
     existing = available_sets(cfg)
-    start = (max(existing) + 1) if existing else 1
+    set_number = (max(existing) + 1) if existing else 1
+    dest_dir = set_dir(cfg, set_number)
+    dest_dir.mkdir(parents=True, exist_ok=True)
 
     written: list[Path] = []
-    for offset in range(sets):
-        set_number = start + offset
-        dest_dir = set_dir(cfg, set_number)
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        for raw_path in raw_paths:
-            shot_id = raw_path.stem
-            print(f"  generating set{set_number}/{shot_id}...")
-            png_bytes = _generate_one(api_key, raw_path)
-            dest = dest_dir / f"{shot_id}.png"
-            dest.write_bytes(png_bytes)
-            written.append(dest)
+    for raw_path in raw_paths:
+        shot_id = raw_path.stem
+        print(f"  generating set{set_number}/{shot_id}...")
+        png_bytes = _generate_one(api_key, raw_path)
+        dest = dest_dir / f"{shot_id}.png"
+        dest.write_bytes(png_bytes)
+        written.append(dest)
     return written
