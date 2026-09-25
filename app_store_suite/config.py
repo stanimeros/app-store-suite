@@ -180,6 +180,28 @@ class StudioConfig:
         return self.app.flutter_dir / "fastlane" / "metadata" / "android" / self.android_locale(lang)
 
 
+def parse_dotenv(path: Path) -> dict[str, str]:
+    """Parses a simple `.env` file of `KEY=value` lines. Blank lines, comment lines
+    (starting with '#'), and lines without '=' are skipped; an optional 'export '
+    prefix on the key is stripped; values are unquoted if wrapped in matching quotes.
+    Returns {} if `path` doesn't exist. Shared by ship.translate_arb (bulk-loads every
+    key) and backgrounds._env_value (looks up one key) so the parsing rules stay in
+    one place."""
+    values: dict[str, str] = {}
+    if not path.exists():
+        return values
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key.startswith("export "):
+            key = key[len("export ") :].strip()
+        values[key] = value.strip().strip('"').strip("'")
+    return values
+
+
 def _require_key(d: dict, key: str, *, where: str, config_path: Path) -> Any:
     if key not in d or d[key] in (None, ""):
         raise ConfigError(f"{config_path}: missing required key '{key}' under {where}")

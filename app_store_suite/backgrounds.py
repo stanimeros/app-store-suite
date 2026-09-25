@@ -6,7 +6,7 @@ import os
 import re
 from pathlib import Path
 
-from .config import StudioConfig
+from .config import StudioConfig, parse_dotenv
 
 # gpt-image-2.5-flare is the fast, everyday tuning of OpenAI's current image model —
 # right fit here since each shot only needs one straightforward edit pass, not the
@@ -74,9 +74,8 @@ def available_sets(cfg: StudioConfig) -> list[int]:
 
 def resolve_background_path(cfg: StudioConfig, shot_id: str) -> Path | None:
     """The shot's chosen generated background (via `bg-pick`), if one was picked and
-    its file is still on disk. None means compose falls back to the plain
-    background_color — this is the normal state until generate-bgs + bg-pick have
-    been run for a shot."""
+    its file is still on disk. None means compose skips this shot entirely — this is
+    the normal state until generate-bgs + bg-pick have been run for a shot."""
     set_number = load_choices(cfg).get(shot_id)
     if set_number is None:
         return None
@@ -90,17 +89,7 @@ def _env_value(cfg: StudioConfig, key: str) -> str | None:
     value = os.environ.get(key)
     if value:
         return value
-    dotenv = cfg.app.flutter_dir / ".env"
-    if not dotenv.exists():
-        return None
-    for line in dotenv.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, _, v = line.partition("=")
-        if k.strip() == key:
-            return v.strip().strip('"').strip("'")
-    return None
+    return parse_dotenv(cfg.app.flutter_dir / ".env").get(key)
 
 
 def _generate_one(api_key: str, raw_path: Path) -> bytes:

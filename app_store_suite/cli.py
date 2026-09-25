@@ -138,7 +138,7 @@ def cmd_bg_pick(args: argparse.Namespace) -> None:
         print(f"Available sets: {', '.join(str(s) for s in sets) or '(none — run generate-bgs first)'}")
         print("Current per-shot choices:")
         if not choices:
-            print("  (none — every shot falls back to the config's background_color)")
+            print("  (none — every shot will be skipped by `compose` until one is picked)")
         for shot_id, set_number in sorted(choices.items()):
             print(f"  {shot_id}: set{set_number}")
         return
@@ -148,7 +148,7 @@ def cmd_bg_pick(args: argparse.Namespace) -> None:
 
     if args.clear:
         backgrounds.clear_choice(cfg, args.shot)
-        print(f"Cleared background choice for '{args.shot}' (will use background_color)")
+        print(f"Cleared background choice for '{args.shot}' (compose will skip it until a new one is picked)")
         return
 
     if args.set is None:
@@ -395,12 +395,12 @@ def main(argv: list[str] | None = None) -> None:
 
     p_bg_pick = sub.add_parser(
         "bg-pick",
-        help="Choose which generated background set a shot should use (overrides background_color for it on future composes)",
+        help="Choose which generated background set a shot should use on future composes",
     )
     p_bg_pick.add_argument("--config", required=True, help="Path to the app_store_suite.yaml config file (see `appstoresuite init`)")
     p_bg_pick.add_argument("--shot", help="Shot id to set/clear (required unless --list)")
     p_bg_pick.add_argument("--set", type=int, help="Background set number to use for this shot")
-    p_bg_pick.add_argument("--clear", action="store_true", help="Remove this shot's background choice, reverting to background_color")
+    p_bg_pick.add_argument("--clear", action="store_true", help="Remove this shot's background choice (compose will skip it until a new one is picked)")
     p_bg_pick.add_argument("--list", action="store_true", help="List available sets and current per-shot choices")
     p_bg_pick.set_defaults(func=cmd_bg_pick)
 

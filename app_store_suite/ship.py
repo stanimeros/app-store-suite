@@ -5,6 +5,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from .config import parse_dotenv
+
 
 class ShipError(RuntimeError):
     pass
@@ -141,17 +143,8 @@ def translate_arb(project_dir: Path, activate_source: str | Path | None = None) 
     env = os.environ.copy()
     env["PATH"] = f"{env.get('PATH', '')}:{Path.home() / '.pub-cache' / 'bin'}"
 
-    dotenv = project_dir / ".env"
-    if dotenv.exists():
-        for line in dotenv.read_text().splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            key = key.strip()
-            if key.startswith("export "):
-                key = key[len("export "):].strip()
-            env.setdefault(key, value.strip().strip('"').strip("'"))
+    for key, value in parse_dotenv(project_dir / ".env").items():
+        env.setdefault(key, value)
 
     if not env.get("ARB_TRANSLATE_API_KEY"):
         raise ShipError("ARB_TRANSLATE_API_KEY is not set (add it to .env or export it)")

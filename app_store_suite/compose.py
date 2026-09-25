@@ -179,12 +179,8 @@ def _cover_resize(img: Image.Image, w: int, h: int) -> Image.Image:
     return resized.crop((x, y, x + w, y + h))
 
 
-def _build_background(
-    canvas_w: int, canvas_h: int, style: StyleConfig, bg_image_path: Path | None
-) -> Image.Image:
-    if bg_image_path is not None:
-        return _cover_resize(Image.open(bg_image_path).convert("RGB"), canvas_w, canvas_h)
-    return Image.new("RGB", (canvas_w, canvas_h), _hex_to_rgb(style.background_color))
+def _build_background(canvas_w: int, canvas_h: int, bg_image_path: Path) -> Image.Image:
+    return _cover_resize(Image.open(bg_image_path).convert("RGB"), canvas_w, canvas_h)
 
 
 def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
@@ -218,15 +214,17 @@ def render_shot(
 ) -> Path:
     """`style` defaults to `cfg.style`. `dest_override` is the file to write —
     required; compose_all points it directly at the real fastlane screenshots/images
-    path. `bg_image_path`, if given (an AI-generated background picked via
-    `bg-pick`), replaces the plain `style.background_color` fill."""
+    path. `bg_image_path` is the AI-generated background picked via `bg-pick` for
+    this shot — required; compose_all skips shots that don't have one yet."""
     if dest_override is None:
         raise ValueError("render_shot requires dest_override — there is no default output path")
+    if bg_image_path is None:
+        raise ValueError("render_shot requires bg_image_path — no fallback background is rendered")
     style = style or cfg.style
     canvas_w, canvas_h = devices_mod.store_resolution(device)
     raw = Image.open(raw_path)
 
-    canvas = _build_background(canvas_w, canvas_h, style, bg_image_path)
+    canvas = _build_background(canvas_w, canvas_h, bg_image_path)
 
     margin = round(canvas_w * _MARGIN_RATIO)
     top_padding = round(canvas_h * _TOP_PADDING_RATIO)
@@ -410,7 +408,7 @@ def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) ->
             shutil.rmtree(android_images_dir / category_dir, ignore_errors=True)
 
     ios_n = 1
-    warned_shots: set[str] = set()
+    skipped_shots: set[str] = set()
     for device_key, device in devices.items():
         device_raw_dir = raw_root / device_key
         if not device_raw_dir.exists():
@@ -422,16 +420,16 @@ def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) ->
 
         for i, raw_path in enumerate(sorted(device_raw_dir.glob("*.png")), start=1):
             shot_id = raw_path.stem
+            bg_image_path = backgrounds.resolve_background_path(cfg, shot_id)
+            if bg_image_path is None:
+                if shot_id not in skipped_shots:
+                    print(f"  skipped '{shot_id}': appstoresuite generate-bgs --config {cfg.config_path} --shot {shot_id}")
+                    skipped_shots.add(shot_id)
+                continue
+
             meta = titles.get(shot_id, {})
             title = meta.get("title") or shot_id.replace("_", " ").title()
             subtitle = meta.get("subtitle", "")
-            bg_image_path = backgrounds.resolve_background_path(cfg, shot_id)
-            if bg_image_path is None and shot_id not in warned_shots:
-                print(
-                    f"  ⚠ no generated background chosen for '{shot_id}' — using "
-                    f"solid background_color (run generate-bgs, then bg-pick)"
-                )
-                warned_shots.add(shot_id)
 
             if device.kind == "ios":
                 dest = ios_dest_dir / f"{ios_n}_{device_key}_{shot_id}.png"

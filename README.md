@@ -391,7 +391,6 @@ look.
 
 ```yaml
 style:
-  background_color: "#FAFAF8"
   title_color: "#1A1A1A"
   font_bold: "Poppins-Bold.ttf"
   font_regular: "Poppins-Regular.ttf"
@@ -404,13 +403,18 @@ Text color is also always auto-checked for contrast against the background —
 near-black-on-light automatically. Tilt direction is derived from a hash of the shot
 id, so the same shot always renders the same way across devices and re-runs.
 
+`background_color` is separate — it's only used by `feature-graphic` (the flat Play
+Store banner), not by `compose`. Per-shot screenshot backgrounds always come from an
+AI-generated image; there is no solid-color fallback (see "Backgrounds" below).
+
 ## Backgrounds
 
-`background_color` above is only the plain fallback. Real backgrounds come from
-`generate-bgs`, which sends each shot's raw screenshot to the OpenAI images API
-(`OPENAI_API_KEY` in `.env` or the environment) and asks it for a simple background —
-soft shapes/gradients inspired by that screenshot's own colors, no text, no UI —
-to sit behind the framed device and title.
+Every composed screenshot's background comes from `generate-bgs`, which sends each
+shot's raw screenshot to the OpenAI images API (`OPENAI_API_KEY` in `.env` or the
+environment) and asks it for a simple background — soft shapes/gradients inspired by
+that screenshot's own colors, no text, no UI — to sit behind the framed device and
+title. There is no plain-color fallback: a shot with no background chosen simply
+isn't composed yet.
 
 Each run of `generate-bgs` writes one or more new numbered **sets** (never
 overwriting previous ones), with one generated image per shot per set, under
@@ -426,10 +430,8 @@ appstoresuite bg-pick --config /path/to/your-app/app_store_suite.yaml --shot hom
 appstoresuite bg-pick --config /path/to/your-app/app_store_suite.yaml --list
 ```
 
-`compose` prints a warning for any shot with no background chosen yet and falls back
-to the plain `background_color` fill for it — nothing fails, but it's easy to miss a
-shot that's still unstyled if you don't watch for that line (or check the
-contact sheet — see below).
+`compose` skips any shot with no background chosen yet, printing the exact
+`generate-bgs` command to run for it, instead of rendering something half-styled.
 
 ## How device frames work
 
