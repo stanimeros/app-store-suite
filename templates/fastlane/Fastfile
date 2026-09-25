@@ -59,7 +59,10 @@ platform :android do
     end
 
     UI.message("Building Android App Bundle")
-    sh("bash -lc 'cd #{REPO_ROOT} && flutter build appbundle'")
+    # Runs outside bundler's gem sandbox — inside `bundle exec`, flutter shelling
+    # out to tools not in this project's Gemfile (cocoapods for iOS builds) fails
+    # to find them, since bundler restricts gem resolution to the Gemfile.
+    Bundler.with_unbundled_env { sh("bash -lc 'cd #{REPO_ROOT} && flutter build appbundle'") }
 
     aab_glob = File.join(REPO_ROOT, "build", "app", "outputs", "bundle", "**", "*.aab")
     candidates = Dir.glob(aab_glob)
@@ -125,7 +128,7 @@ platform :ios do
     end
 
     UI.message("Building iOS ipa")
-    sh("bash -lc 'cd #{REPO_ROOT} && flutter build ipa'")
+    Bundler.with_unbundled_env { sh("bash -lc 'cd #{REPO_ROOT} && flutter build ipa'") }
 
     ipa_glob = File.join(REPO_ROOT, "build", "ios", "ipa", "*.ipa")
     candidates = Dir.glob(ipa_glob)

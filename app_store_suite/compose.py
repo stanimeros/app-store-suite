@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import colorsys
 import hashlib
 import math
 import re
@@ -66,15 +67,59 @@ def _luminance(rgb: tuple[int, int, int]) -> float:
     return 0.299 * r + 0.587 * g + 0.114 * b
 
 
+def _accent_from_hue(hue: float, saturation: float, dark: bool) -> tuple[int, int, int]:
+    """A vivid, saturated shade (`dark=True`) or a soft, gently-tinted shade
+    (`dark=False`) of `hue` — e.g. a punchy royal blue for a sky-blue background,
+    or a deep brick red for a coral one — instead of the generic near-black/white
+    a plain luminance fallback would pick. `dark`'s value (0.42) is deliberately
+    kept well above near-black (which reads as indistinguishable from plain black
+    at a glance) while still low enough to contrast against a bright background."""
+    if dark:
+        r, g, b = colorsys.hsv_to_rgb(hue, min(1.0, saturation * 1.15 + 0.3), 0.42)
+    else:
+        r, g, b = colorsys.hsv_to_rgb(hue, min(0.35, saturation * 0.5), 0.96)
+    return (round(r * 255), round(g * 255), round(b * 255))
+
+
 def _readable_text_color(
     bg_rgb: tuple[int, int, int], preferred_rgb: tuple[int, int, int]
 ) -> tuple[int, int, int]:
-    """Keeps the configured title_color if it already contrasts against this
-    background; otherwise falls back to white-on-dark or near-black-on-light so text
-    stays legible regardless of background color."""
-    if abs(_luminance(bg_rgb) - _luminance(preferred_rgb)) > 110:
+    """Picks a text color that stays visible against `bg_rgb`, preferring one that
+    still reads as "on brand": a vivid, deliberately-chosen `preferred_rgb` (e.g. a
+    brand accent set in the yaml) is kept whenever it already contrasts enough. A
+    near-black/white "ink" preferred color is only kept as-is against a similarly
+    neutral background — against a colorful one (an AI-generated background is
+    rarely a flat neutral), a deeper/lighter shade of *that background's own hue*
+    is used instead, so e.g. a blue background gets a rich matching navy rather
+    than flat black. Only true neutral-on-neutral falls back to plain white/near-black."""
+    contrasts = abs(_luminance(bg_rgb) - _luminance(preferred_rgb)) > 110
+    bg_h, bg_s, _ = colorsys.rgb_to_hsv(*(c / 255 for c in bg_rgb))
+    _, pref_s, _ = colorsys.rgb_to_hsv(*(c / 255 for c in preferred_rgb))
+
+    if pref_s > 0.25 and contrasts:
+        return preferred_rgb
+    if bg_s > 0.15:
+        return _accent_from_hue(bg_h, bg_s, dark=_luminance(bg_rgb) >= 128)
+    if contrasts:
         return preferred_rgb
     return (255, 255, 255) if _luminance(bg_rgb) < 128 else (26, 26, 26)
+
+
+def _sampled_text_color(
+    canvas: Image.Image, preferred_rgb: tuple[int, int, int], left: int, top: int, right: int, bottom: int
+) -> tuple[int, int, int]:
+    """Samples the mean color of the exact region a text block will be drawn over
+    and picks a readable color for it (see `_readable_text_color`). Clamps the
+    region to the canvas bounds so a block computed slightly past the edge (e.g. a
+    subtitle with no lines) doesn't hand Pillow an empty/invalid crop box."""
+    box = (
+        max(0, round(left)),
+        max(0, round(top)),
+        min(canvas.width, max(round(left) + 1, round(right))),
+        min(canvas.height, max(round(top) + 1, round(bottom))),
+    )
+    band = ImageStat.Stat(canvas.crop(box)).mean[:3]
+    return _readable_text_color(tuple(round(c) for c in band), preferred_rgb)
 
 
 def _parse_offset(offset: str) -> tuple[int, int]:
@@ -229,13 +274,6 @@ def render_shot(
     margin = round(canvas_w * _MARGIN_RATIO)
     top_padding = round(canvas_h * _TOP_PADDING_RATIO)
 
-    # Sampled after the background is drawn, before any text is drawn, so the color
-    # picked reflects what text will actually sit on. The exact wrapped text height
-    # isn't known yet, so this just samples a representative top band.
-    sample_h = round(canvas_h * 0.2)
-    title_band = ImageStat.Stat(canvas.crop((0, 0, canvas_w, sample_h))).mean[:3]
-    title_color = _readable_text_color(tuple(round(c) for c in title_band), _hex_to_rgb(style.title_color))
-
     draw = ImageDraw.Draw(canvas)
 
     text_max_width = canvas_w - margin * 2
@@ -255,8 +293,28 @@ def render_shot(
         sub_line_height = sub_font.size + round(sub_font.size * 0.3)
         sub_gap = round(sub_font.size * 0.5)
 
-    total_text_h = text_block_h + (sub_gap + sub_line_height * len(sub_lines) if sub_lines else 0)
     text_top = top_padding
+    sub_top = text_top + text_block_h + sub_gap
+
+    # Sampled from the actual region each block will sit on (not one shared guess for
+    # both), so a background whose color/brightness varies across its height — much
+    # more likely with an AI-generated image than a flat fill — still gets its own
+    # visible color per block, matching the configured brand color whenever it
+    # already contrasts enough against that region.
+    title_color = _sampled_text_color(
+        canvas, _hex_to_rgb(style.title_color), 0, text_top, canvas_w, text_top + text_block_h
+    )
+    sub_color = (
+        _sampled_text_color(
+            canvas,
+            _hex_to_rgb(style.subtitle_color or style.title_color),
+            0, sub_top, canvas_w, sub_top + sub_line_height * len(sub_lines),
+        )
+        if sub_lines
+        else title_color
+    )
+
+    total_text_h = text_block_h + (sub_gap + sub_line_height * len(sub_lines) if sub_lines else 0)
 
     for i, line in enumerate(lines):
         w = draw.textlength(line, font=title_font)
@@ -268,14 +326,13 @@ def render_shot(
         )
 
     if sub_lines:
-        sub_top = text_top + text_block_h + sub_gap
         for i, line in enumerate(sub_lines):
             w = draw.textlength(line, font=sub_font)
             draw.text(
                 ((canvas_w - w) / 2, sub_top + i * sub_line_height),
                 line,
                 font=sub_font,
-                fill=title_color,
+                fill=sub_color,
             )
 
     content_top = text_top + total_text_h + round(canvas_h * _TEXT_DEVICE_GAP_RATIO)

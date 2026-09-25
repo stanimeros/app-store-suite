@@ -68,6 +68,9 @@ class AutoCaptureConfig:
 class StyleConfig:
     background_color: str = "#FAFAF8"
     title_color: str = "#1A1A1A"
+    # Defaults to title_color when unset — override only if the subtitle should
+    # read as a visually distinct (usually lighter/muted) color from the title.
+    subtitle_color: str | None = None
     font_bold: str = "Poppins-Bold.ttf"
     font_regular: str = "Poppins-Regular.ttf"
     # "centered": device sits upright, bottom-anchored, centered. "tilted": device is
@@ -268,6 +271,7 @@ def load_config(path: str | Path) -> StudioConfig:
     style = StyleConfig(
         background_color=style_raw.get("background_color", "#FAFAF8"),
         title_color=style_raw.get("title_color", "#1A1A1A"),
+        subtitle_color=style_raw.get("subtitle_color"),
         font_bold=style_raw.get("font_bold", "Poppins-Bold.ttf"),
         font_regular=style_raw.get("font_regular", "Poppins-Regular.ttf"),
         layout=style_raw.get("layout", "centered"),

@@ -179,8 +179,43 @@ def cmd_feature_graphic(args: argparse.Namespace) -> None:
             "Warning: no --subtitle given and no play_short_description drafted yet for "
             f"'{lang}' — feature graphic will have no subtitle line."
         )
-    dest = generate_feature_graphic(cfg, lang, headline, subtitle)
+    bg_image_path = backgrounds.resolve_fg_background_path(cfg)
+    if bg_image_path is None:
+        print(
+            "No AI-generated background picked (run 'appstoresuite generate-fg-bg' then "
+            "'appstoresuite fg-bg-pick') — using the plain style.background_color fill."
+        )
+    dest = generate_feature_graphic(cfg, lang, headline, subtitle, bg_image_path=bg_image_path)
     print(f"Feature graphic written to {dest}")
+
+
+def cmd_generate_fg_bg(args: argparse.Namespace) -> None:
+    cfg = load_config(args.config)
+    dest = backgrounds.generate_feature_graphic_background(cfg)
+    print(f"\nFeature graphic background written to {dest}.")
+    print("Review it, then run 'appstoresuite fg-bg-pick --set <n>' to use it.")
+
+
+def cmd_fg_bg_pick(args: argparse.Namespace) -> None:
+    cfg = load_config(args.config)
+
+    if args.list:
+        sets = backgrounds.fg_available_sets(cfg)
+        chosen = backgrounds.load_fg_choice(cfg)
+        print(f"Available sets: {', '.join(str(s) for s in sets) or '(none — run generate-fg-bg first)'}")
+        print(f"Current choice: set{chosen}" if chosen is not None else "Current choice: (none — feature-graphic will use the plain background_color fill)")
+        return
+
+    if args.clear:
+        backgrounds.clear_fg_choice(cfg)
+        print("Cleared feature graphic background choice (feature-graphic will use the plain background_color fill)")
+        return
+
+    if args.set is None:
+        raise SystemExit("--set is required (unless using --clear or --list)")
+
+    backgrounds.save_fg_choice(cfg, args.set)
+    print(f"Feature graphic will now use background set{args.set} on next 'feature-graphic'")
 
 
 def cmd_store_listing(args: argparse.Namespace) -> None:
@@ -413,6 +448,24 @@ def main(argv: list[str] | None = None) -> None:
     p_fg.add_argument("--headline", help="Override the headline text (defaults to app name)")
     p_fg.add_argument("--subtitle", help="Optional subtitle text shown below the headline")
     p_fg.set_defaults(func=cmd_feature_graphic)
+
+    p_generate_fg_bg = sub.add_parser(
+        "generate-fg-bg",
+        help="Generate an AI background image for the feature graphic via the OpenAI images API "
+        "(requires OPENAI_API_KEY), using the app icon as the visual reference",
+    )
+    p_generate_fg_bg.add_argument("--config", required=True, help="Path to the app_store_suite.yaml config file (see `appstoresuite init`)")
+    p_generate_fg_bg.set_defaults(func=cmd_generate_fg_bg)
+
+    p_fg_bg_pick = sub.add_parser(
+        "fg-bg-pick",
+        help="Choose which generated feature graphic background set to use on future 'feature-graphic' runs",
+    )
+    p_fg_bg_pick.add_argument("--config", required=True, help="Path to the app_store_suite.yaml config file (see `appstoresuite init`)")
+    p_fg_bg_pick.add_argument("--set", type=int, help="Background set number to use")
+    p_fg_bg_pick.add_argument("--clear", action="store_true", help="Remove the feature graphic background choice (falls back to the plain background_color fill)")
+    p_fg_bg_pick.add_argument("--list", action="store_true", help="List available sets and the current choice")
+    p_fg_bg_pick.set_defaults(func=cmd_fg_bg_pick)
 
     p_listing = sub.add_parser(
         "store-listing", help="Draft 'proposed' Google Play / App Store listing copy via the claude CLI"

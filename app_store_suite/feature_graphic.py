@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from .compose import _font_for_text, _hex_to_rgb, _readable_text_color
+from .compose import _build_background, _font_for_text, _hex_to_rgb, _sampled_text_color
 from .config import StudioConfig
 
 WIDTH, HEIGHT = 1024, 500
@@ -35,11 +35,16 @@ def _fit_single_line_font(
     return font
 
 
-def generate_feature_graphic(cfg: StudioConfig, lang: str, headline: str, subtitle: str = "") -> Path:
-    bg_color = _hex_to_rgb(cfg.style.background_color)
-    title_color = _readable_text_color(bg_color, _hex_to_rgb(cfg.style.title_color))
-
-    canvas = Image.new("RGB", (WIDTH, HEIGHT), bg_color)
+def generate_feature_graphic(
+    cfg: StudioConfig, lang: str, headline: str, subtitle: str = "", bg_image_path: Path | None = None
+) -> Path:
+    """`bg_image_path` is the AI-generated background picked via `fg-bg-pick`, if
+    any — falls back to a plain `style.background_color` fill when None."""
+    canvas = (
+        _build_background(WIDTH, HEIGHT, bg_image_path)
+        if bg_image_path
+        else Image.new("RGB", (WIDTH, HEIGHT), _hex_to_rgb(cfg.style.background_color))
+    )
     draw = ImageDraw.Draw(canvas)
 
     icon_size = 220
@@ -75,11 +80,25 @@ def generate_feature_graphic(cfg: StudioConfig, lang: str, headline: str, subtit
 
     total_h = block_h + (sub_gap + sub_line_height if subtitle else 0)
     top = (HEIGHT - total_h) // 2
+
+    # Sampled from the actual region each block sits on (see compose.py's
+    # render_shot for why) rather than one color for both, so a generated
+    # background whose brightness varies across the banner still keeps both
+    # lines visible, matching the configured brand color whenever it already
+    # contrasts enough against that region.
+    title_color = _sampled_text_color(
+        canvas, _hex_to_rgb(cfg.style.title_color), text_left, top, WIDTH - margin, top + block_h
+    )
     draw.text((text_left, top), headline, font=font, fill=title_color)
 
     if subtitle and sub_font:
         sub_top = top + block_h + sub_gap
-        draw.text((text_left, sub_top), subtitle, font=sub_font, fill=title_color)
+        sub_color = _sampled_text_color(
+            canvas,
+            _hex_to_rgb(cfg.style.subtitle_color or cfg.style.title_color),
+            text_left, sub_top, WIDTH - margin, sub_top + sub_line_height,
+        )
+        draw.text((text_left, sub_top), subtitle, font=sub_font, fill=sub_color)
 
     dest = cfg.feature_graphic_path(lang)
     dest.parent.mkdir(parents=True, exist_ok=True)
