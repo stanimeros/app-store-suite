@@ -25,7 +25,7 @@ def generate_previews(
 ) -> list[Path]:
     device = cfg.devices[device_key]
     titles = titles_store.load_titles(cfg, lang)
-    raw_paths = sorted((cfg.raw_dir / device_key).glob("*.png"))
+    raw_paths = sorted((cfg.raw_dir_for(lang) / device_key).glob("*.png"))
     if shot_ids:
         wanted = set(shot_ids)
         raw_paths = [p for p in raw_paths if p.stem in wanted]
