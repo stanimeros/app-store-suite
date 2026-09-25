@@ -26,6 +26,15 @@ def pubspec_version
   { name: match[1], code: match[2].to_i }
 end
 
+desc "Dependency hygiene + license compliance (dependency_validator + license_checker) — add both to pubspec.yaml dev_dependencies first, see pubspec_additions.yaml"
+lane :validate_deps do
+  UI.message("Running dependency_validator")
+  sh("bash -lc 'cd #{REPO_ROOT} && dart run dependency_validator'")
+
+  UI.message("Running license_checker")
+  sh("bash -lc 'cd #{REPO_ROOT} && dart run license_checker check-licenses -c license_checker.yaml'")
+end
+
 platform :android do
   desc "Check pubspec build number against the highest live Play Store version code, build the AAB, then upload it to internal testing"
   lane :ship_internal do

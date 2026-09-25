@@ -9,6 +9,7 @@ from pathlib import Path
 from fontTools.ttLib import TTFont
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageStat
 
+from . import backgrounds
 from . import devices as devices_mod
 from . import titles_store
 from .config import DeviceConfig, StudioConfig, StyleConfig
@@ -167,7 +168,22 @@ def _seed_for(shot_id: str) -> int:
     return int(hashlib.md5(shot_id.encode()).hexdigest()[:8], 16)
 
 
-def _build_background(canvas_w: int, canvas_h: int, style: StyleConfig) -> Image.Image:
+def _cover_resize(img: Image.Image, w: int, h: int) -> Image.Image:
+    """Scales `img` up just enough to cover a w x h canvas, then center-crops the
+    overflow — same idea as CSS `background-size: cover`, since a generated
+    background's own aspect ratio rarely matches the target store canvas exactly."""
+    scale = max(w / img.width, h / img.height)
+    resized = img.resize((round(img.width * scale), round(img.height * scale)), Image.LANCZOS)
+    x = (resized.width - w) // 2
+    y = (resized.height - h) // 2
+    return resized.crop((x, y, x + w, y + h))
+
+
+def _build_background(
+    canvas_w: int, canvas_h: int, style: StyleConfig, bg_image_path: Path | None
+) -> Image.Image:
+    if bg_image_path is not None:
+        return _cover_resize(Image.open(bg_image_path).convert("RGB"), canvas_w, canvas_h)
     return Image.new("RGB", (canvas_w, canvas_h), _hex_to_rgb(style.background_color))
 
 
@@ -198,17 +214,19 @@ def render_shot(
     raw_path: Path,
     style: StyleConfig | None = None,
     dest_override: Path | None = None,
+    bg_image_path: Path | None = None,
 ) -> Path:
     """`style` defaults to `cfg.style`. `dest_override` is the file to write —
     required; compose_all points it directly at the real fastlane screenshots/images
-    path."""
+    path. `bg_image_path`, if given (an AI-generated background picked via
+    `bg-pick`), replaces the plain `style.background_color` fill."""
     if dest_override is None:
         raise ValueError("render_shot requires dest_override — there is no default output path")
     style = style or cfg.style
     canvas_w, canvas_h = devices_mod.store_resolution(device)
     raw = Image.open(raw_path)
 
-    canvas = _build_background(canvas_w, canvas_h, style)
+    canvas = _build_background(canvas_w, canvas_h, style, bg_image_path)
 
     margin = round(canvas_w * _MARGIN_RATIO)
     top_padding = round(canvas_h * _TOP_PADDING_RATIO)
@@ -392,6 +410,7 @@ def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) ->
             shutil.rmtree(android_images_dir / category_dir, ignore_errors=True)
 
     ios_n = 1
+    warned_shots: set[str] = set()
     for device_key, device in devices.items():
         device_raw_dir = raw_root / device_key
         if not device_raw_dir.exists():
@@ -406,15 +425,23 @@ def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) ->
             meta = titles.get(shot_id, {})
             title = meta.get("title") or shot_id.replace("_", " ").title()
             subtitle = meta.get("subtitle", "")
+            bg_image_path = backgrounds.resolve_background_path(cfg, shot_id)
+            if bg_image_path is None and shot_id not in warned_shots:
+                print(
+                    f"  ⚠ no generated background chosen for '{shot_id}' — using "
+                    f"solid background_color (run generate-bgs, then bg-pick)"
+                )
+                warned_shots.add(shot_id)
 
             if device.kind == "ios":
                 dest = ios_dest_dir / f"{ios_n}_{device_key}_{shot_id}.png"
                 ios_n += 1
                 render_shot(
                     cfg, lang, device_key, device, shot_id, title, subtitle, raw_path,
-                    dest_override=dest,
+                    dest_override=dest, bg_image_path=bg_image_path,
                 )
                 outputs.append(dest)
+                primary_outputs.append(dest)
                 print(f"  composed {dest}")
             else:
                 categories = list(android_dest_dirs.items())
@@ -422,9 +449,10 @@ def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) ->
                 primary_dest = primary_dir / f"{i}_{shot_id}.png"
                 render_shot(
                     cfg, lang, device_key, device, shot_id, title, subtitle, raw_path,
-                    dest_override=primary_dest,
+                    dest_override=primary_dest, bg_image_path=bg_image_path,
                 )
                 outputs.append(primary_dest)
+                primary_outputs.append(primary_dest)
                 print(f"  composed {primary_dest}")
                 for _, cat_dir in categories[1:]:
                     cat_dir.mkdir(parents=True, exist_ok=True)
@@ -432,4 +460,9 @@ def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) ->
                     shutil.copyfile(primary_dest, extra_dest)
                     outputs.append(extra_dest)
                     print(f"  composed {extra_dest}")
+
+    sheet_dest = cfg.output_dir / f"contact_sheet_{lang}.png"
+    if _build_contact_sheet(primary_outputs, sheet_dest):
+        print(f"  contact sheet: {sheet_dest}")
+
     return outputs

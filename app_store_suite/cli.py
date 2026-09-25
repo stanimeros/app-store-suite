@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from . import ai_titles
+from . import backgrounds
 from . import devices as devices_mod
 from . import ship
 from . import titles_store
@@ -42,9 +43,13 @@ def cmd_init(args: argparse.Namespace) -> None:
         "  - Fill in app_store_suite.yaml (devices, icon_source, credentials as needed)\n"
         "  - Add flutter_localizations + intl to pubspec.yaml and set `generate: true` "
         "under the flutter: section, if not already there\n"
-        "  - Copy .env.example to .env and fill in ARB_TRANSLATE_API_KEY\n"
+        "  - Merge pubspec_additions.yaml into pubspec.yaml (Crashlytics/Analytics/"
+        "dependency_validator/license_checker), then `flutter pub get`\n"
+        "  - Copy .env.example to .env and fill in ARB_TRANSLATE_API_KEY / OPENAI_API_KEY\n"
         "  - Run `fastlane init` inside fastlane/ to wire up real Apple/Google credentials, "
-        "then fill in the ship_testflight/ship_internal lanes in fastlane/Fastfile\n"
+        "then fill in the ship_testflight/ship_internal lanes in fastlane/Fastfile "
+        "(validate_deps is ready to go once dependency_validator/license_checker are in "
+        "pubspec.yaml)\n"
         "  - For auto-capture: fill in lib/debug/screenshot_router.dart's TODOs (it has full "
         "instructions in its own doc comment, including two gotchas worth reading before you "
         "start: a splash-screen navigation race, and network images not being loaded yet when "
@@ -110,6 +115,47 @@ def cmd_compose(args: argparse.Namespace) -> None:
             f"\n[{lang}] {len(outputs)} store screenshot(s) written to "
             f"{cfg.ios_screenshots_dir(lang)} and {cfg.android_images_dir(lang)}"
         )
+
+
+def cmd_generate_bgs(args: argparse.Namespace) -> None:
+    cfg = load_config(args.config)
+    device_key = args.device or next(iter(cfg.devices))
+    lang = args.lang or cfg.default_language
+    shot_ids = args.shot.split(",") if args.shot else None
+
+    written = backgrounds.generate_backgrounds(cfg, device_key, lang, shot_ids, sets=args.sets)
+    print(f"\n{len(written)} background(s) written across {args.sets} set(s).")
+    print("Review them under fastlane/appstoresuite/backgrounds/, then run "
+          "'appstoresuite bg-pick' to choose a set per shot.")
+
+
+def cmd_bg_pick(args: argparse.Namespace) -> None:
+    cfg = load_config(args.config)
+
+    if args.list:
+        choices = backgrounds.load_choices(cfg)
+        sets = backgrounds.available_sets(cfg)
+        print(f"Available sets: {', '.join(str(s) for s in sets) or '(none — run generate-bgs first)'}")
+        print("Current per-shot choices:")
+        if not choices:
+            print("  (none — every shot falls back to the config's background_color)")
+        for shot_id, set_number in sorted(choices.items()):
+            print(f"  {shot_id}: set{set_number}")
+        return
+
+    if not args.shot:
+        raise SystemExit("--shot is required (unless using --list)")
+
+    if args.clear:
+        backgrounds.clear_choice(cfg, args.shot)
+        print(f"Cleared background choice for '{args.shot}' (will use background_color)")
+        return
+
+    if args.set is None:
+        raise SystemExit("--set is required (unless using --clear or --list)")
+
+    backgrounds.save_choice(cfg, args.shot, args.set)
+    print(f"'{args.shot}' will now use background set{args.set} on next compose")
 
 
 def cmd_store_icon(args: argparse.Namespace) -> None:
@@ -335,6 +381,28 @@ def main(argv: list[str] | None = None) -> None:
     p_compose.add_argument("--device", help="Only compose this device key from the config")
     p_compose.add_argument("--lang", help="Only compose this language (defaults to all configured languages)")
     p_compose.set_defaults(func=cmd_compose)
+
+    p_generate_bgs = sub.add_parser(
+        "generate-bgs",
+        help="Generate AI background images per shot via the OpenAI images API (requires OPENAI_API_KEY)",
+    )
+    p_generate_bgs.add_argument("--config", required=True, help="Path to the app_store_suite.yaml config file (see `appstoresuite init`)")
+    p_generate_bgs.add_argument("--device", help="Device key whose raw screenshots to use as the visual reference (defaults to the first configured device)")
+    p_generate_bgs.add_argument("--lang", help="Language whose raw screenshots to use (defaults to the first configured language)")
+    p_generate_bgs.add_argument("--shot", help="Comma-separated shot ids to generate (defaults to all shots)")
+    p_generate_bgs.add_argument("--sets", type=int, default=1, help="How many new numbered sets to generate in this run (default 1)")
+    p_generate_bgs.set_defaults(func=cmd_generate_bgs)
+
+    p_bg_pick = sub.add_parser(
+        "bg-pick",
+        help="Choose which generated background set a shot should use (overrides background_color for it on future composes)",
+    )
+    p_bg_pick.add_argument("--config", required=True, help="Path to the app_store_suite.yaml config file (see `appstoresuite init`)")
+    p_bg_pick.add_argument("--shot", help="Shot id to set/clear (required unless --list)")
+    p_bg_pick.add_argument("--set", type=int, help="Background set number to use for this shot")
+    p_bg_pick.add_argument("--clear", action="store_true", help="Remove this shot's background choice, reverting to background_color")
+    p_bg_pick.add_argument("--list", action="store_true", help="List available sets and current per-shot choices")
+    p_bg_pick.set_defaults(func=cmd_bg_pick)
 
     p_icon = sub.add_parser("store-icon", help="Generate the 512x512 Play Store app icon")
     p_icon.add_argument("--config", required=True, help="Path to the app_store_suite.yaml config file (see `appstoresuite init`)")

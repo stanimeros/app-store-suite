@@ -56,10 +56,12 @@ def scaffold_project(
     force: bool = False,
 ) -> ScaffoldResult:
     """Lays down starter files for a new app — app_store_suite.yaml, l10n.yaml
-    (+ a template ARB file), .env.example, a fastlane skeleton, and a
-    screenshot-router template for `auto-capture` — by copying them from
-    templates/ (next to this package) and substituting `__PLACEHOLDER__`
-    tokens where a value was auto-detected from the project.
+    (+ a template ARB file), .env.example, a fastlane skeleton (including a
+    validate_deps lane), a screenshot-router template for `auto-capture`,
+    license_checker.yaml, and pubspec_additions.yaml (Crashlytics/Analytics/
+    dependency_validator/license_checker dependency snippets to merge by hand) —
+    by copying them from templates/ (next to this package) and substituting
+    `__PLACEHOLDER__` tokens where a value was auto-detected from the project.
 
     Never overwrites an existing file unless force=True.
     """
@@ -127,5 +129,7 @@ def scaffold_project(
     )
     _copy("Gemfile", project_dir / "Gemfile")
     _copy("lib/debug/screenshot_router.dart", project_dir / "lib" / "debug" / "screenshot_router.dart")
+    _copy("license_checker.yaml", project_dir / "license_checker.yaml")
+    _copy("pubspec_additions.yaml", project_dir / "pubspec_additions.yaml")
 
     return ScaffoldResult(created=created, skipped=skipped)

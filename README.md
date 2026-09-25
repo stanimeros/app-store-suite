@@ -29,12 +29,17 @@ pipx upgrade app-store-suite
 `appstoresuite init` (run from inside your Flutter project, or with `--project-dir`)
 scaffolds the starter files most apps need: `app_store_suite.yaml`, `l10n.yaml` + a
 template `lib/l10n/app_en.arb`, `.env.example`, a `fastlane/` skeleton (Fastfile
-with empty `ship_testflight`/`ship_internal` lanes + Appfile), and
-`lib/debug/screenshot_router.dart` — a template implementation of the debug router
-`auto-capture` needs (see "Auto-capture requirements" below), full of `TODO`s and a
-doc comment covering how to wire it up plus two gotchas worth reading before you
-start (a splash-screen navigation race, and network images not being loaded yet when
-a shot is captured). App name, iOS bundle id, and Android package name are
+with empty `ship_testflight`/`ship_internal` lanes, a ready-to-use `validate_deps`
+lane, + Appfile), `lib/debug/screenshot_router.dart` — a template implementation of
+the debug router `auto-capture` needs (see "Auto-capture requirements" below), full
+of `TODO`s and a doc comment covering how to wire it up plus two gotchas worth
+reading before you start (a splash-screen navigation race, and network images not
+being loaded yet when a shot is captured) — and two dependency-hygiene defaults:
+`license_checker.yaml` (a starter license allow/reject policy) and
+`pubspec_additions.yaml` (a dependency snippet for Crashlytics, Analytics,
+`dependency_validator`, and `license_checker` to merge into `pubspec.yaml` by hand —
+`init` never edits an existing `pubspec.yaml` itself). App name, iOS bundle id, and
+Android package name are
 auto-detected from `pubspec.yaml`, `ios/Runner.xcodeproj/project.pbxproj`, and
 `android/app/build.gradle(.kts)` and filled into the generated config/Appfile — pass
 `--name` to override the detected app name. It never overwrites an existing file
@@ -95,7 +100,9 @@ appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --lan
 # Composites fastlane/appstoresuite/raw/<device>/<shot>.png (device bezel frame or
 # the procedural fallback, background, the shot's title) straight into the real
 # fastlane output locations: fastlane/screenshots/<locale>/ for iOS,
-# fastlane/metadata/android/<locale>/images/<category>/ for Android.
+# fastlane/metadata/android/<locale>/images/<category>/ for Android. Also writes a
+# contact_sheet_<lang>.png grid of every composed shot to fastlane/appstoresuite/
+# for a quick at-a-glance review without opening each file individually.
 appstoresuite compose --config /path/to/your-app/app_store_suite.yaml
 
 # 512x512 Play Store app icon, resized from app.icon_source.
@@ -391,6 +398,33 @@ Text color is also always auto-checked for contrast against the background —
 `title_color` is kept if it already contrasts, otherwise swapped for white-on-dark or
 near-black-on-light automatically. Tilt direction is derived from a hash of the shot
 id, so the same shot always renders the same way across devices and re-runs.
+
+## Backgrounds
+
+`background_color` above is only the plain fallback. Real backgrounds come from
+`generate-bgs`, which sends each shot's raw screenshot to the OpenAI images API
+(`OPENAI_API_KEY` in `.env` or the environment) and asks it for a simple background —
+soft shapes/gradients inspired by that screenshot's own colors, no text, no UI —
+to sit behind the framed device and title.
+
+Each run of `generate-bgs` writes one or more new numbered **sets** (never
+overwriting previous ones), with one generated image per shot per set, under
+`fastlane/appstoresuite/backgrounds/set<N>/<shot_id>.png`. Nothing is picked
+automatically — generate a few sets, look at them, then pin whichever set each shot
+should use with `bg-pick`:
+
+```bash
+# Generates 3 sets in one run (3 candidate backgrounds per shot to compare).
+appstoresuite generate-bgs --config /path/to/your-app/app_store_suite.yaml --sets 3
+
+appstoresuite bg-pick --config /path/to/your-app/app_store_suite.yaml --shot home --set 2
+appstoresuite bg-pick --config /path/to/your-app/app_store_suite.yaml --list
+```
+
+`compose` prints a warning for any shot with no background chosen yet and falls back
+to the plain `background_color` fill for it — nothing fails, but it's easy to miss a
+shot that's still unstyled if you don't watch for that line (or check the
+contact sheet — see below).
 
 ## How device frames work
 
