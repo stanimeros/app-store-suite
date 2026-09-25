@@ -52,15 +52,20 @@ FRAME_MAP: dict[str, dict[str, str]] = {
 # Final export canvas size per device class, matching current App Store Connect /
 # Google Play Console accepted screenshot buckets.
 #
-# iOS: App Store Connect only accepts specific pixel buckets per device class —
-# (1242x2688 or 1284x2778) for phone, (2064x2752 or 2048x2732) for tablet.
+# iOS: App Store Connect only accepts specific pixel buckets per device class.
+# For phone that is the 6.9" bucket — 1320x2868 or 1290x2796 — which has been
+# the *required* iPhone set since Apple retired 6.5"-only uploads; the older
+# 6.5" sizes (1242x2688 / 1284x2778) are now optional extras, so composing into
+# one leaves a listing with no uploadable iPhone screenshots at all. 1320x2868
+# is the closer aspect match to what the current iPhone simulators capture.
+# Tablet is 2064x2752 or 2048x2732.
 #
 # Android: Play Console requires 16:9 or 9:16 aspect ratio, sides between 320-3840px
 # (phone / 7" tablet) or 1080-7680px (10" tablet) — 1080x1920 and 1440x2560 are both
 # exact 9:16 and fall inside the intersection of all three ranges, so the same pair
 # of assets is valid for phone, 7" tablet, and 10" tablet listings alike.
 _STORE_RESOLUTIONS = {
-    ("ios", "phone"): (1284, 2778),
+    ("ios", "phone"): (1320, 2868),
     ("ios", "tablet"): (2064, 2752),
     ("android", "phone"): (1080, 1920),
     ("android", "tablet"): (1440, 2560),
