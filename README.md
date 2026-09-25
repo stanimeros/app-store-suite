@@ -55,7 +55,7 @@ Alternatively, copy `templates/app_store_suite.example.yaml` into your Flutter a
 `icon_source`, your devices, and (if you want `auto-capture`) `deep_link_scheme` +
 `shots:` — see "Auto-capture requirements" below. `flutter_dir: .` assumes the config
 sits at the repo root; adjust if not. `fastlane/appstoresuite/` is where this tool's
-own working data (raw captures, style choices, shot titles) lives, nested inside
+own working data (raw captures, generated backgrounds, shot titles) lives, nested inside
 `fastlane/` but not part of what fastlane/App Store Connect/Play Console actually
 consume. Commit it normally rather than gitignoring it — raw captures are the
 expensive-to-redo part (they require an actual device/simulator auto-capture run),
@@ -104,6 +104,11 @@ appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --lan
 # contact_sheet_<lang>.png grid of every composed shot to fastlane/appstoresuite/
 # for a quick at-a-glance review without opening each file individually.
 appstoresuite compose --config /path/to/your-app/app_store_suite.yaml
+
+# AI-generated backgrounds (see "Backgrounds" below) — generates 3 candidate sets,
+# then pins set 2 for the "home" shot so the next `compose` uses it.
+appstoresuite generate-bgs --config /path/to/your-app/app_store_suite.yaml --sets 3
+appstoresuite bg-pick --config /path/to/your-app/app_store_suite.yaml --shot home --set 2
 
 # 512x512 Play Store app icon, resized from app.icon_source.
 appstoresuite store-icon --config /path/to/your-app/app_store_suite.yaml
