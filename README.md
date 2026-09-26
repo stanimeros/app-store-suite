@@ -330,13 +330,19 @@ device. If nothing matches (no modern Android tablet frame exists upstream, for
 instance), `compose` falls back to a clean procedural rounded-corner frame with
 a shadow rather than failing.
 
-## Credits
+## License
 
-`translate-arb` uses a vendored fork of
-[arb_translate](https://github.com/leancodepl/arb_translate) in
-[`vendor/arb_translate`](vendor/arb_translate), activated automatically on first
-use. Pass `--activate-source` to use a different fork.
+MIT — see [LICENSE](LICENSE).
 
-Bundled fonts (Inter, Poppins, Noto Sans, Playpen Sans, Arima, Source Serif 4)
-are licensed under the SIL Open Font License — see
-[`app_store_suite/fonts/OFL.txt`](app_store_suite/fonts/OFL.txt).
+Third-party components keep their own licenses:
+
+- [`vendor/arb_translate`](vendor/arb_translate) — a fork of
+  [arb_translate](https://github.com/leancodepl/arb_translate) (Apache-2.0),
+  used by `translate-arb` and activated automatically on first use. Pass
+  `--activate-source` to use a different fork.
+- Bundled fonts (Inter, Poppins, Noto Sans, Playpen Sans, Arima, Source Serif 4)
+  — SIL Open Font License, see
+  [`app_store_suite/fonts/OFL.txt`](app_store_suite/fonts/OFL.txt).
+- Device frames from
+  [fastlane/frameit-frames](https://github.com/fastlane/frameit-frames) (MIT),
+  fetched at runtime rather than vendored.
