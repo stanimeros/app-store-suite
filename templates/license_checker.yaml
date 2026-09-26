@@ -1,6 +1,4 @@
-# Starter license policy for Flutter apps. Single source of truth for the estate:
-# scaffolded by `appstoresuite init`, and copied from here by
-# ai-assistant/maintenance/bootstrap.sh. Edit it here, nowhere else.
+# Starter license policy for Flutter apps, scaffolded by `appstoresuite init`.
 # dev_dependencies (see pubspec_additions.yaml):
 #   license_checker: ^1.6.2
 #   dependency_validator: ^5.0.6

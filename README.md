@@ -1,463 +1,342 @@
 # app-store-suite
 
-Store-asset and shipping automation for Flutter apps: unattended screenshot capture
-via deep links, framed/titled store-ready marketing images, the Play Store icon and
-feature graphic, Google Play / App Store listing copy via the `claude` CLI, and
-shipping builds to TestFlight / Play Store internal testing via fastlane.
+Store-asset and release automation for Flutter apps, as a single CLI:
 
-Installs as a single global `appstoresuite` command (via pipx) so it runs from any
-directory. It holds no per-app state itself — each app's config lives in that app's
-own repo (see `templates/app_store_suite.example.yaml`), the same way `pubspec.yaml`
-or `l10n.yaml` do.
+- **Capture** — unattended screenshots of every screen, driven by deep links.
+- **Compose** — device-framed, titled, store-ready marketing images.
+- **Assets** — Play Store app icon and feature graphic.
+- **Copy** — draft App Store / Play Store listing text via the `claude` CLI.
+- **Push** — upload metadata, screenshots and images; ship builds via fastlane.
+
+It holds no per-app state. Each app's config lives in that app's own repo, the
+same way `pubspec.yaml` and `l10n.yaml` do.
+
+## Requirements
+
+- Python 3.10+ and [pipx](https://pipx.pypa.io)
+- Flutter, Xcode (iOS), Android SDK (Android)
+- Ruby + [fastlane](https://fastlane.tools) for `push` / `ship-*`
+- `OPENAI_API_KEY` for AI backgrounds, `claude` CLI for listing copy
 
 ## Install
 
 ```bash
-cd app-store-suite
+git clone <this repo> && cd app-store-suite
 pipx install --editable .
 ```
 
-`--editable` means pulling future changes in this repo (`git pull`) takes effect
-immediately, without reinstalling. Upgrading after a `git pull`:
+`--editable` means a `git pull` takes effect immediately. If you ever need to
+force a refresh: `pipx upgrade app-store-suite`.
+
+## Quick start
 
 ```bash
-pipx upgrade app-store-suite
+cd /path/to/your-flutter-app
+
+# 1. Scaffold config + fastlane skeleton + debug screenshot router.
+appstoresuite init
+
+# 2. Fill in app_store_suite.yaml (devices, shots, deep_link_scheme), then:
+appstoresuite setup      --config app_store_suite.yaml   # AVDs, device frames, fastlane patches
+appstoresuite auto-capture --config app_store_suite.yaml # raw screenshots
+appstoresuite generate-bgs --config app_store_suite.yaml # AI backgrounds
+appstoresuite bg-pick    --config app_store_suite.yaml --shot home --set 1
+appstoresuite compose    --config app_store_suite.yaml   # framed store images
+
+# 3. Store assets and copy.
+appstoresuite store-icon      --config app_store_suite.yaml
+appstoresuite feature-graphic --config app_store_suite.yaml --headline "Plan every trip"
+appstoresuite store-listing   --config app_store_suite.yaml
+
+# 4. Review `git diff`, then upload.
+appstoresuite push --config app_store_suite.yaml
 ```
 
-## Set up a new app
+Every asset command takes `--config`. Shipping commands take `--project-dir`
+instead (or `--config`, or nothing when run from inside the Flutter project).
 
-`appstoresuite init` (run from inside your Flutter project, or with `--project-dir`)
-scaffolds the starter files most apps need: `app_store_suite.yaml`, `l10n.yaml` + a
-template `lib/l10n/app_en.arb`, `.env.example`, a `fastlane/` skeleton (Fastfile
-with empty `ship_testflight`/`ship_internal` lanes, a ready-to-use `validate_deps`
-lane, + Appfile), `lib/debug/screenshot_router.dart` — a template implementation of
-the debug router `auto-capture` needs (see "Auto-capture requirements" below), full
-of `TODO`s and a doc comment covering how to wire it up plus two gotchas worth
-reading before you start (a splash-screen navigation race, and network images not
-being loaded yet when a shot is captured) — and two dependency-hygiene defaults:
-`license_checker.yaml` (a starter license allow/reject policy) and
-`pubspec_additions.yaml` (a dependency snippet for Crashlytics, Analytics,
-`dependency_validator`, and `license_checker` to merge into `pubspec.yaml` by hand —
-`init` never edits an existing `pubspec.yaml` itself). App name, iOS bundle id, and
-Android package name are
-auto-detected from `pubspec.yaml`, `ios/Runner.xcodeproj/project.pbxproj`, and
-`android/app/build.gradle(.kts)` and filled into the generated config/Appfile — pass
-`--name` to override the detected app name. It never overwrites an existing file
-unless you pass `--force`. Fastlane still needs `fastlane init` run separately
-per-platform to wire up real Apple/Google credentials — the generated Fastfile is
-just a lane-name-matching stub for you to fill in.
+## Commands
 
-All scaffolded files are copied from `templates/` next to this package (source of
-truth for `init` — edit them there if you want to change what new projects get).
-`templates/license_checker.yaml` is also the estate-wide source of truth for that
-file: `ai-assistant/maintenance` no longer keeps its own copy — its `bootstrap.sh`
-reads this one (via `$APP_STORE_SUITE_DIR`, default `~/Developer/app-store-suite`)
-and its Flutter checks point here. Changing the policy here changes it everywhere.
+| Command | What it does |
+| --- | --- |
+| `init` | Scaffold config, `l10n.yaml`, `.env.example`, fastlane skeleton, debug router |
+| `setup` | Create missing AVDs, cache device frames, patch fastlane (see below) |
+| `auto-capture` | Boot each device, open each shot's deep link, screenshot, tear down |
+| `compose` | Frame + brand raw captures into the real fastlane output paths |
+| `generate-bgs` / `bg-pick` | Generate and pin AI screenshot backgrounds |
+| `store-icon` | 512×512 Play Store icon from `app.icon_source` |
+| `feature-graphic` | 1024×500 Play Store feature graphic |
+| `generate-fg-bg` / `fg-bg-pick` | Generate and pin the feature graphic background |
+| `store-listing` | Draft listing copy (name, descriptions, keywords) via `claude` |
+| `fetch-listing` | Pull the currently-live listing copy down as a git baseline |
+| `translate-titles` | Translate shot titles/subtitles into another language |
+| `validate` | Flag over-limit and near-duplicate listing fields |
+| `push` | Upload metadata / screenshots / Play images — never a binary |
+| `bump-version` | Bump `pubspec.yaml`'s PATCH and +BUILD together |
+| `ship-ios` / `ship-android` | Build and upload to TestFlight / Play internal testing |
+| `translate-arb` | Translate missing Flutter ARB strings, regenerate l10n classes |
 
-Alternatively, copy `templates/app_store_suite.example.yaml` into your Flutter app's own repo root
-(e.g. as `app_store_suite.yaml`, alongside `pubspec.yaml`), and fill in `app.name`,
-`icon_source`, your devices, and (if you want `auto-capture`) `deep_link_scheme` +
-`shots:` — see "Auto-capture requirements" below. `flutter_dir: .` assumes the config
-sits at the repo root; adjust if not. `fastlane/appstoresuite/` is where this tool's
-own working data (raw captures, generated backgrounds, shot titles) lives, nested inside
-`fastlane/` but not part of what fastlane/App Store Connect/Play Console actually
-consume. Commit it normally rather than gitignoring it — raw captures are the
-expensive-to-redo part (they require an actual device/simulator auto-capture run),
-so they're worth keeping in git history rather than only on disk. Everything that
-*is* store-facing — composed screenshots, listing text, the Play icon/feature
-graphic — is written straight into the real `fastlane/screenshots/` and
-`fastlane/metadata/` layout `fastlane supply`/`fastlane deliver` already expect, so
-commit those normally too (see "Composing screenshots" and "Listing metadata"
-below).
+Run `appstoresuite <command> --help` for every flag.
 
-If a device identifier isn't already in `app_store_suite/devices.py`'s `FRAME_MAP`,
-either add a frame mapping there or accept the procedural rounded-corner fallback
-frame `compose.py` uses instead.
+## Config
 
-## Usage
+`init` writes `app_store_suite.yaml` into your app repo, auto-detecting the app
+name, iOS bundle id and Android package from `pubspec.yaml`,
+`project.pbxproj` and `build.gradle`. See
+[`templates/app_store_suite.example.yaml`](templates/app_store_suite.example.yaml)
+for the annotated full version. The minimum:
 
-Every command takes `--config` pointing at wherever you put that app's config.
+```yaml
+app:
+  name: YourApp
+  flutter_dir: .                      # relative to this file
+  icon_source: assets/icon/icon.png   # >= 1024x1024
+  deep_link_scheme: myapp             # only needed for auto-capture
 
-```bash
-# One-time: create any missing Android AVDs, cache device bezel frames.
-appstoresuite setup --config /path/to/your-app/app_store_suite.yaml
+languages: [en]                       # first is the default
 
-# Unattended capture: boots each configured device, opens each configured shot's
-# deep link, screenshots it, tears the device down again. See "Auto-capture
-# requirements" below for what the app itself needs to expose.
-appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml
-appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --device ios_phone
-appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --render-delay 8
+devices:
+  ios_phone:
+    simulator: "iPhone 17 Pro"        # from `xcrun simctl list devices available`
+  android_phone:
+    avd: "Medium_Phone"               # `setup` creates missing AVDs
 
-# For apps whose debug router also reads a `lang` deep-link query param to switch
-# the in-app language (see "Auto-capture requirements" below): captures raw shots
-# under raw/<lang>/<device>/ instead of the shared raw/<device>/, so re-running per
-# language doesn't clobber the previous language's captures.
-appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --lang en
-appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --lang el
-
-# Comma-separated languages capture back-to-back in one boot/launch per device
-# instead of one full boot per language — faster, and (on iOS) only has to get
-# past the "Open in <App>?" dialog once per device instead of once per language.
-appstoresuite auto-capture --config /path/to/your-app/app_store_suite.yaml --lang en,el
-
-# Composites fastlane/appstoresuite/raw/<device>/<shot>.png (device bezel frame or
-# the procedural fallback, background, the shot's title) straight into the real
-# fastlane output locations: fastlane/screenshots/<locale>/ for iOS,
-# fastlane/metadata/android/<locale>/images/<category>/ for Android. Also writes a
-# contact_sheet_<lang>.png grid of every composed shot to fastlane/appstoresuite/
-# for a quick at-a-glance review without opening each file individually.
-appstoresuite compose --config /path/to/your-app/app_store_suite.yaml
-
-# AI-generated backgrounds (see "Backgrounds" below) — generates one candidate set
-# (each call generates exactly one; rerun to get another), then pins it for the
-# "home" shot so the next `compose` uses it.
-appstoresuite generate-bgs --config /path/to/your-app/app_store_suite.yaml
-appstoresuite bg-pick --config /path/to/your-app/app_store_suite.yaml --shot home --set 1
-
-# 512x512 Play Store app icon, resized from app.icon_source.
-appstoresuite store-icon --config /path/to/your-app/app_store_suite.yaml
-
-# 1024x500 Play Store feature graphic.
-appstoresuite feature-graphic --config /path/to/your-app/app_store_suite.yaml --headline "Plan every trip"
-
-# Drafts Google Play / App Store listing copy (app name, descriptions, keywords)
-# from the shots' titles/subtitles via the `claude` CLI, writing each field
-# straight to its real fastlane/metadata/<platform>/<locale>/<field>.txt path
-# (the "proposed", not-yet-pushed copy — see "Listing metadata" below).
-# Character counts against each store's limits are computed in Python, not
-# trusted from the model's own output.
-appstoresuite store-listing --config /path/to/your-app/app_store_suite.yaml
-
-# Fetches the currently-live listing copy from App Store Connect (fastlane deliver)
-# and/or Play Console (fastlane supply) into those same files, then commits them as
-# a baseline — so `git diff -- fastlane/metadata/` shows only local edits made
-# since this fetch. Requires store credentials in the config (below).
-appstoresuite fetch-listing --config /path/to/your-app/app_store_suite.yaml
-
-# Translate one language's shot titles/subtitles into another via the `claude` CLI
-# (separate from the app's own ARB strings — see "Auto-capture requirements" above).
-appstoresuite translate-titles --config /path/to/your-app/app_store_suite.yaml --from en --to el
+shots:                                # only needed for auto-capture
+  - id: home
+    route: shot/home
 ```
 
-## Auto-capture requirements
-
-Unattended capture drives the app itself via deep link — no manual navigation, no
-interactive prompts. For the target app to support it, it needs to expose three
-things:
-
-1. **A deep-link scheme.** Declare it in the config:
-
-   ```yaml
-   app:
-     deep_link_scheme: chronal # chronal://<route>
-   ```
-
-   The app must register that scheme (iOS: `CFBundleURLSchemes` in `Info.plist`;
-   Android: an `<intent-filter>` with `android:scheme="chronal"` on the launcher
-   activity) and be able to handle it while cold-starting or already running.
-
-2. **A fixed shot list with stable keys**, one entry per screen you want captured,
-   in the config:
-
-   ```yaml
-   shots:
-     - id: home
-       route: shot/home
-     - id: trip_map
-       route: shot/trip-map
-   ```
-
-   `id` is the filename shots are saved/composed under (must stay stable across
-   runs — renaming it starts that shot over with a fresh AI-suggested title).
-   `route` is whatever your app's router expects after the `scheme://`.
-
-3. **A debug router that lands on each route with sample data already loaded** —
-   no login, no live network calls, no dependency on real user state. A route
-   handler should short-circuit straight to the target screen with mock/sample
-   data injected (chronal does this for trip previews already — reuse that
-   pattern: a `shot/<screen>` route maps to the same screen a normal navigation
-   would reach, but seeded with a canned sample trip instead of requiring the
-   user to have actually created one). Keep this behind a debug-only build flag
-   if the scheme shouldn't be reachable in production.
-
-ARB/localization strings aren't part of this contract — auto-capture runs the app in
-whatever locale the device/simulator is already set to. Composed titles/subtitles are
-generated separately per shot by `store-listing`/`translate-titles`, stored in
-`fastlane/appstoresuite/<lang>/titles.json`, independent of the app's own ARB files.
-
-Without `deep_link_scheme` + `shots:` configured, `auto-capture` refuses to run
-(fails fast with what's missing) — every other command still works.
-
-**iOS "Open in *App*?" dialog.** The iOS Simulator shows a system confirmation
-sheet on *every* `simctl openurl` of a custom URL scheme (it doesn't
-distinguish a real external app/Safari from automation, and — unlike the
-one-time prompt you'd see on a real device — it does not stay dismissed for
-the rest of an app session; it reappears on each call). `open_url` in
-`capture/ios.py` detects it (via System Events, so it needs Accessibility
-access — macOS prompts for this automatically the first time; grant it under
-System Settings > Privacy & Security > Accessibility if it was previously
-denied) and pauses capture with a printed prompt until you tap **Open**
-yourself in the Simulator window; it resumes on its own the moment the dialog
-is gone. This is also where you'd handle a real sign-in prompt if a shot's
-route ever needs one — same pause-and-wait, no separate mechanism. If System
-Events can't see the dialog at all (no Accessibility access), capture just
-proceeds after a short settle delay and that shot's screenshot shows the
-dialog instead of the target screen — grant access and re-run rather than
-trying to work around it by re-running multiple times.
-
-## Listing metadata: current vs. proposed
-
-Each listing field (app name, descriptions, keywords, etc.) is a plain text file at
-its real fastlane path — `fastlane/metadata/ios/<locale>/name.txt`,
-`fastlane/metadata/android/<locale>/title.txt`, and so on, the same filenames
-`fastlane deliver`/`fastlane supply` themselves read and write. There's no separate
-JSON model: "current" (what's actually live) is whatever's last committed to that
-path in git; "proposed" (a draft from `store-listing`, or hand-edited) is the
-working-tree version. `git diff -- fastlane/metadata/` in the app's own repo IS the
-current-vs-proposed comparison — or `git show HEAD:fastlane/metadata/ios/en-US/name.txt`
-to see just the live value for one field. Nothing is ever uploaded automatically —
-review the diff, then `push` it (or copy it into App Store Connect / Play Console's
-own listing forms yourself) once you're happy with it.
-
-`fetch-listing` needs store credentials in the config — reuse whatever your Fastfile
-already uses for shipping:
+Store credentials (needed for `push` and `fetch-listing`) go in the same file —
+reuse whatever your Fastfile already uses:
 
 ```yaml
 app:
   bundle_id: com.yourcompany.yourapp
   asc_key_id: XXXXXXXXXX
   asc_issuer_id: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-  asc_key_path: keys/AuthKey_XXXXXXXXXX.p8 # relative to flutter_dir
+  asc_key_path: keys/AuthKey_XXXXXXXXXX.p8      # relative to flutter_dir
   android_package_name: com.yourcompany.yourapp
   play_json_key: keys/your-service-account.json # relative to flutter_dir
 ```
 
-Store locale codes don't always match your own language codes (e.g. Play uses
-`el-GR` for Greek where App Store Connect just uses `el`) — `fetch-listing` tries
-your code as-is first, then a couple of common variants for `en`. If it can't find a
-match it fails with the locale codes it actually found, so you can add an override:
+Key files and `.env` belong in your app's repo and should stay gitignored.
+
+Where store locale codes differ from your language codes (Play uses `el-GR`
+where App Store Connect uses `el`), add overrides — otherwise your code is
+tried as-is first, then a few common variants:
 
 ```yaml
 store_locales:
   el: el-GR
 ```
 
-`fetch-listing` runs `fastlane deliver`/`fastlane supply` straight against the real
-`fastlane/metadata/` directory inside the app's repo (their standard working
-format — dozens of per-field `.txt` files); app-store-suite keeps only the fields it
-actually uses (see the field list in `store_listing.py`) and drops the rest, then
-stages+commits the kept files as a baseline (skipped if `flutter_dir` isn't a git
-repo, or nothing changed).
+`init` also scaffolds two dependency-hygiene defaults: `license_checker.yaml`
+(a starter license allow/reject policy) and `pubspec_additions.yaml` (a snippet
+to merge into `pubspec.yaml` by hand — `init` never edits an existing
+`pubspec.yaml`). Everything is copied from [`templates/`](templates); edit there
+to change what new projects get. Nothing is overwritten without `--force`.
 
-## Pushing metadata and screenshots live
+### Style
 
-`store-listing`/`compose` only ever write local files — nothing reaches the
-stores until you push it. `push` does that, deliberately scoped to *just*
-metadata text, screenshots, and/or (Play only) the store icon + feature
-graphic (never a binary — use `ship-ios`/`ship-android` for that, and never
-anything you haven't reviewed locally first):
-
-```bash
-# Everything (metadata text + screenshots + Play images), both stores, all configured languages.
-appstoresuite push --config /path/to/your-app/app_store_suite.yaml
-
-# Just one platform/target/language.
-appstoresuite push --config /path/to/your-app/app_store_suite.yaml --platform android --what metadata
-appstoresuite push --config /path/to/your-app/app_store_suite.yaml --platform ios --what screenshots --lang en,el
-appstoresuite push --config /path/to/your-app/app_store_suite.yaml --platform android --what images
-```
-
-`--what metadata` pushes each language's listing text straight from
-`fastlane/metadata/<platform>/<locale>/*.txt` (see above) — draft/review it with
-`store-listing`/`git diff` before pushing; nothing here asks for confirmation.
-`--what screenshots` pushes whatever `compose` last wrote directly into
-`fastlane/screenshots/`/`fastlane/metadata/android/<locale>/images/` — there's no
-separate copy step at push time anymore. `--what images` pushes the store icon
-(`store-icon`) and each language's feature graphic (`feature-graphic`) — Play
-only, since App Store Connect has no equivalent upload slot (the app icon ships
-inside the binary there); it's a no-op for `--platform ios`.
-
-Requires the same store credentials as `fetch-listing` (above). Android
-tablet screenshots (any device key containing `"tablet"`) go to both Play's
-sevenInch and tenInch buckets, since a single composed image can't target
-both; iOS screenshots are auto-bucketed by App Store Connect from each
-image's pixel dimensions, so no per-device mapping is needed there.
-
-The three bugs below all live inside fastlane's own Ruby (`deliver`), not
-anything of ours — `appstoresuite setup` patches the installed gem for all
-three automatically (idempotent, safe to re-run any time, e.g. after a
-fastlane upgrade — see `gem_patches.py`). Documented here for the "why", and
-in case you're on a fastlane version where the patch text doesn't match
-(`setup` will tell you if a patch was skipped for that reason).
-
-**Known fastlane bug (fastlane 2.237.0):** `push --platform ios --what
-metadata` calls `fastlane deliver`, which can crash with
-`Spaceship::ConnectAPI::Models.parse: No data` on apps that have never had an
-App Store version reviewed yet (deliver's `review_attachment_file` step fetches
-`app_store_review_detail`, which 404s and isn't rescued — unlike the identical
-case just above it in the same file, which is). `setup` patches the installed
-gem: in `deliver/lib/deliver/upload_metadata.rb`'s `review_attachment_file`,
-wraps `version.fetch_app_store_review_detail` in `begin/rescue; nil; end` and
-adds `return unless app_store_review_detail` right after, mirroring the
-existing `fetch_reset_ratings_request` rescue a few lines up.
-
-**Known fastlane bug, Play side:** every Android push passes
-`--changes_not_sent_for_review true`, meant to leave the edit as an
-unpublished draft in Play Console. For edits that only touch listing content
-(metadata/images/screenshots, no APK/AAB) rather than a track/release, Google's
-backend appears to ignore the flag and sends it for review anyway — see
-[fastlane/fastlane#26439](https://github.com/fastlane/fastlane/issues/26439),
-same scenario. Not fixable from here; judged an acceptable tradeoff since
-Play's review of listing content is normally fast/automated, unlike binary
-review — just don't expect the draft-hold to actually work.
-
-**Known fastlane bug, iOS screenshots — duplicates:** `push --platform ios
---what screenshots` can leave duplicate screenshots on App Store Connect, even
-though `push_ios_screenshots` already isolates each language into its own
-`deliver` call specifically to reduce this. Root cause, traced in
-`deliver/lib/deliver/upload_screenshots.rb`: after uploading, deliver polls
-Apple's processing state, then verifies every local file made it up by
-checksum. If Apple hasn't finished processing a screenshot by the time that
-check runs (a few seconds later), it looks "missing" even though it actually
-succeeded, and deliver retries. The retry's duplicate-check compares against
-`app_screenshot_set.app_screenshots`, a snapshot cached before the *first*
-upload batch and never refreshed — so it doesn't recognize the screenshots
-that just succeeded, and re-uploads them as genuinely new entries. Which
-files get hit is non-deterministic (depends on Apple's processing speed that
-run). Not exposed as any `deliver`/CLI option — `setup` patches the installed
-gem: in `deliver/lib/deliver/upload_screenshots.rb`'s `upload_screenshots`,
-right before the `iterator.each_local_screenshot` loop, adds a
-`refreshed_sets = {}` memo hash, then at the top of that loop's block:
-
-```ruby
-unless refreshed_sets[app_screenshot_set.id]
-  fresh_set = Spaceship::ConnectAPI::AppScreenshotSet.get(app_screenshot_set_id: app_screenshot_set.id)
-  app_screenshot_set.app_screenshots = fresh_set.app_screenshots if fresh_set
-  refreshed_sets[app_screenshot_set.id] = true
-end
-```
-
-This re-fetches each screenshot set's current state fresh once per call
-(including retries) instead of trusting the stale cache, so the duplicate
-check actually sees what's really on App Store Connect. If you already have
-duplicates from before this was patched: delete the affected screenshots in
-App Store Connect and push again (the delete step at the start of every push
-unconditionally clears a locale's entire existing screenshot set first, so
-you don't need to hand-pick which ones to remove).
-
-Even with that fix, a retry can still fire on a **false positive** — Apple
-hadn't finished processing yet, nothing was actually wrong — and each retry
-is still a real second upload pass, just a deduped one now. Given the choice
-between "occasionally reports a stale processing state it doesn't wait out"
-and "ever risks a duplicate," this project's `upload_screenshots.rb` also has
-the retry itself disabled: `retry_upload_screenshots_if_needed`'s `else`
-branch (the "Tries remaining" one) no longer calls `upload_screenshots`
-again — it just logs what it saw (failure/still-processing/missing) and
-returns. One upload pass, full stop; if Apple was still processing, checking
-App Store Connect a minute later than the CLI exiting always shows it caught
-up. If you're setting this up fresh, apply both patches together.
-
-## Shipping
-
-These operate directly on a Flutter project checkout. `--project-dir` is optional:
-pass `--config` instead to derive it from that config's `flutter_dir`, or omit both
-and run from inside the Flutter project itself (detected via `pubspec.yaml`).
-
-```bash
-# Bumps pubspec.yaml's PATCH and +BUILD together, e.g. 1.0.6+9 -> 1.0.7+10.
-# Run once per release, before ship-ios / ship-android, so both platforms ship the
-# same version.
-appstoresuite bump-version --project-dir /path/to/your-app
-
-# Builds the ipa and uploads it to TestFlight, via `bundle exec fastlane ios <lane>`.
-# Requires a Fastfile with that lane (default: ship_testflight) already set up.
-appstoresuite ship-ios --project-dir /path/to/your-app
-appstoresuite ship-ios --project-dir /path/to/your-app --lane ship_testflight
-
-# Builds the App Bundle and uploads it to Play Store internal testing, via
-# `bundle exec fastlane android <lane>` (default lane: ship_internal).
-appstoresuite ship-android --project-dir /path/to/your-app
-
-# Translates missing Flutter ARB strings via arb_translate, then regenerates the
-# localization classes (`flutter pub get` + `flutter gen-l10n`). Requires
-# ARB_TRANSLATE_API_KEY in the environment or a .env file in --project-dir.
-# arb_translate itself is vendored at vendor/arb_translate (a fork of
-# https://github.com/leancodepl/arb_translate) and gets activated automatically
-# the first time it's needed — pass --activate-source to use a different fork.
-appstoresuite translate-arb --project-dir /path/to/your-app
-```
-
-## Style options
-
-`style:` in a config controls one consistent look for the whole app (not per-shot).
-All fields are optional; omitting them keeps the original solid-background, upright
-look.
+`style:` sets one consistent look for the whole app. All fields are optional.
 
 ```yaml
 style:
   title_color: "#1A1A1A"
+  background_color: "#FAFAF8"   # feature-graphic only, not compose
   font_bold: "Poppins-Bold.ttf"
   font_regular: "Poppins-Regular.ttf"
-  layout: "centered" # centered | tilted
-  tilt_degrees: 6 # rotation for layout: tilted; alternates left/right per shot
+  layout: "centered"            # centered | tilted
+  tilt_degrees: 6               # for layout: tilted; alternates per shot
 ```
 
-Text color is also always auto-checked for contrast against the background —
-`title_color` is kept if it already contrasts, otherwise swapped for white-on-dark or
-near-black-on-light automatically. Tilt direction is derived from a hash of the shot
-id, so the same shot always renders the same way across devices and re-runs.
+`title_color` is kept only if it contrasts with the background; otherwise it's
+swapped for white-on-dark or near-black-on-light automatically. Tilt direction
+is derived from a hash of the shot id, so a shot renders identically across
+devices and re-runs.
 
-`background_color` is separate — it's only used by `feature-graphic` (the flat Play
-Store banner), not by `compose`. Per-shot screenshot backgrounds always come from an
-AI-generated image; there is no solid-color fallback (see "Backgrounds" below).
+## Auto-capture requirements
+
+Capture drives the app by deep link — no manual navigation, no prompts. Your
+app needs three things:
+
+1. **A registered URL scheme.** iOS: `CFBundleURLSchemes` in `Info.plist`.
+   Android: an `<intent-filter>` with `android:scheme="myapp"` on the launcher
+   activity. It must work on cold start and while already running.
+
+2. **A stable shot list** in the config. `id` is the filename shots are saved
+   under (renaming it starts that shot over with a fresh AI title); `route` is
+   whatever your router expects after `scheme://`.
+
+3. **A debug router that lands on each route with sample data already loaded** —
+   no login, no live network calls, no dependency on real user state. A
+   `shot/<screen>` route should short-circuit to the same screen a normal
+   navigation reaches, but seeded with canned mock data. `init` scaffolds
+   [`lib/debug/screenshot_router.dart`](templates/lib/debug/screenshot_router.dart)
+   as a starting point, with TODOs and two gotchas worth reading first (a
+   splash-screen navigation race, and network images not being loaded yet when a
+   shot is captured). Keep the scheme behind a debug-only flag if it shouldn't
+   be reachable in production.
+
+Without `deep_link_scheme` and `shots:`, `auto-capture` fails fast with what's
+missing; every other command still works.
+
+Localization isn't part of this contract — the app runs in whatever locale the
+device is set to. If your router reads a `lang` query param, pass `--lang` to
+capture per language into `raw/<lang>/<device>/`; comma-separated values
+(`--lang en,el`) capture back-to-back in one boot per device. Composed
+titles/subtitles are separate from your ARB files and live in
+`fastlane/appstoresuite/<lang>/titles.json`.
+
+Capture always uses plain `flutter run` (debug mode) — the iOS Simulator can't
+run release or profile builds. Set `debugShowCheckedModeBanner: false` on
+`MaterialApp` so the red DEBUG ribbon stays out of your screenshots.
+
+**iOS "Open in *App*?" dialog.** The Simulator shows a confirmation sheet on
+*every* `simctl openurl` of a custom scheme, and it doesn't stay dismissed.
+`capture/ios.py` detects it via System Events and pauses until you tap **Open**
+yourself, then resumes on its own. This needs Accessibility access (macOS
+prompts the first time; otherwise grant it under System Settings → Privacy &
+Security → Accessibility). Without it, capture proceeds after a short delay and
+that shot captures the dialog instead of your screen — grant access and re-run.
+This is also where a real sign-in prompt gets handled, if a route ever needs one.
+
+## Where files go
+
+```
+fastlane/
+  appstoresuite/          # this tool's working data — commit it
+    raw/                  #   raw captures (expensive to redo)
+    backgrounds/set<N>/   #   generated background candidates
+    <lang>/titles.json    #   shot titles/subtitles
+    contact_sheet_<lang>.png
+  screenshots/<locale>/                          # store-facing (iOS)
+  metadata/<platform>/<locale>/*.txt             # store-facing (listing copy)
+  metadata/android/<locale>/images/<category>/   # store-facing (Android)
+```
+
+`appstoresuite/` is nested inside `fastlane/` but isn't something fastlane or
+the stores consume. Commit it rather than gitignoring it — raw captures require
+a real device run to reproduce. Everything store-facing is written straight into
+the layout `fastlane deliver` / `fastlane supply` already expect, so commit that
+too.
 
 ## Backgrounds
 
-Every composed screenshot's background comes from `generate-bgs`, which sends each
-shot's raw screenshot to the OpenAI images API (`OPENAI_API_KEY` in `.env` or the
-environment) and asks it for a simple background — soft shapes/gradients inspired by
-that screenshot's own colors, no text, no UI — to sit behind the framed device and
-title. There is no plain-color fallback: a shot with no background chosen simply
-isn't composed yet.
+Composed screenshot backgrounds come from `generate-bgs`, which sends each
+shot's raw screenshot to the OpenAI images API and asks for a simple background
+(soft shapes and gradients drawn from that screenshot's own colors, no text, no
+UI) to sit behind the framed device and title. There is no solid-color fallback:
+`compose` skips any shot with no background chosen and prints the command to run.
 
-Each run of `generate-bgs` writes exactly one new numbered **set** (never overwriting
-previous ones), with one generated image per shot, under
-`fastlane/appstoresuite/backgrounds/set<N>/<shot_id>.png` — one set per call by
-design, so you review it before generating another, rather than generating a pile of
-variants blind. If a shot's background isn't right, rerun `generate-bgs` for just
-that shot (optionally after adjusting `BACKGROUND_PROMPT` for a steer, the same way
-you'd revise a prompt). Nothing is picked automatically — pin whichever set each shot
-should use with `bg-pick`:
+Each run writes exactly one new numbered set, never overwriting previous ones —
+one per call by design, so you review before generating another. Nothing is
+picked automatically:
 
 ```bash
-appstoresuite generate-bgs --config /path/to/your-app/app_store_suite.yaml
-appstoresuite bg-pick --config /path/to/your-app/app_store_suite.yaml --shot home --set 1
+appstoresuite generate-bgs --config app_store_suite.yaml
+appstoresuite bg-pick --config app_store_suite.yaml --shot home --set 1
 
 # Not happy with it? Generate another set for just that shot, then re-pick.
-appstoresuite generate-bgs --config /path/to/your-app/app_store_suite.yaml --shot home
-appstoresuite bg-pick --config /path/to/your-app/app_store_suite.yaml --shot home --set 2
-appstoresuite bg-pick --config /path/to/your-app/app_store_suite.yaml --list
+appstoresuite generate-bgs --config app_store_suite.yaml --shot home
+appstoresuite bg-pick --config app_store_suite.yaml --shot home --set 2
+appstoresuite bg-pick --config app_store_suite.yaml --list
 ```
 
-`compose` skips any shot with no background chosen yet, printing the exact
-`generate-bgs` command to run for it, instead of rendering something half-styled.
+Adjust `BACKGROUND_PROMPT` in `backgrounds.py` to steer the look. The feature
+graphic has its own equivalent pair, `generate-fg-bg` / `fg-bg-pick`, which uses
+the app icon as its visual reference and falls back to `style.background_color`.
 
-## How device frames work
+## Listing copy: current vs. proposed
+
+Each listing field is a plain text file at its real fastlane path
+(`fastlane/metadata/ios/<locale>/name.txt`,
+`fastlane/metadata/android/<locale>/title.txt`, …) — the same filenames fastlane
+itself reads. There's no separate model: **current** is what's committed to that
+path in git, **proposed** is the working-tree version. So
+`git diff -- fastlane/metadata/` *is* the comparison, and
+`git show HEAD:fastlane/metadata/ios/en-US/name.txt` shows just the live value.
+
+`store-listing` drafts proposed copy from the shots' titles via the `claude`
+CLI; character counts are computed in Python, not trusted from the model.
+`fetch-listing` pulls the live copy down and commits it as a baseline, so a
+later diff shows only your own edits.
+
+Nothing is ever uploaded automatically.
+
+## Pushing live
+
+`push` uploads only listing text, screenshots and (Play only) the store icon +
+feature graphic. Never a binary — use `ship-ios` / `ship-android` for that.
+
+```bash
+# Everything, both stores, all configured languages.
+appstoresuite push --config app_store_suite.yaml
+
+# Or scope it.
+appstoresuite push --config app_store_suite.yaml --platform android --what metadata
+appstoresuite push --config app_store_suite.yaml --platform ios --what screenshots --lang en,el
+appstoresuite push --config app_store_suite.yaml --platform android --what images
+```
+
+Review your diff first — `push` asks for no confirmation. `--what images` is a
+no-op on iOS, where the app icon ships inside the binary. Android tablet
+screenshots (any device key containing `tablet`) go to both Play's sevenInch and
+tenInch buckets; iOS screenshots are auto-bucketed by App Store Connect from
+their pixel dimensions.
+
+### Fastlane patches
+
+Three bugs live in fastlane's own `deliver` Ruby, not in this project.
+`appstoresuite setup` patches the installed gem for all of them — idempotent and
+safe to re-run, e.g. after a fastlane upgrade. It tells you if a patch was
+skipped because the text didn't match your fastlane version. Patch bodies and
+full rationale are in [`gem_patches.py`](app_store_suite/gem_patches.py).
+
+1. **Metadata crash (fastlane 2.237.0).** `deliver`'s `review_attachment_file`
+   fetches `app_store_review_detail`, which 404s on apps that never had a
+   version reviewed, and isn't rescued — so `push --what metadata` dies with
+   `Spaceship::ConnectAPI::Models.parse: No data`. The patch rescues it, exactly
+   as the identical case a few lines above already does.
+
+2. **Duplicate iOS screenshots.** After uploading, `deliver` verifies each local
+   file by checksum. Screenshots Apple hasn't finished processing look
+   "missing", triggering a retry — and the retry's duplicate check compares
+   against a snapshot cached before the first batch, so it re-uploads them as
+   new. The patch re-fetches each screenshot set's real state once per call.
+   Since a retry is still a second upload pass even when deduped, the retry
+   itself is also disabled: one upload pass, full stop. If Apple was still
+   processing, App Store Connect catches up a minute after the CLI exits. Apply
+   both patches together. To clean up pre-existing duplicates, delete the
+   affected screenshots in App Store Connect and push again — every push clears
+   a locale's entire screenshot set first.
+
+3. **Play drafts get reviewed anyway.** Android pushes pass
+   `--changes_not_sent_for_review true` to leave an unpublished draft, but for
+   content-only edits Google's backend appears to ignore it
+   ([fastlane#26439](https://github.com/fastlane/fastlane/issues/26439)). Not
+   fixable from here, and acceptable since Play reviews listing content quickly
+   — just don't rely on the draft hold.
+
+## Device frames
 
 Bezel images and screen-offset metadata come from
-[fastlane/frameit-frames](https://github.com/fastlane/frameit-frames) (MIT), fetched
-on demand and cached at `~/.cache/app-store-suite/frames`. The mapping from a
-simulator/AVD name to a frame asset lives in `app_store_suite/devices.py`
-(`FRAME_MAP`) — frameit's device coverage skews toward real iOS/Android hardware
-names, so `resolve_frame()` looks up by exact identifier; add an entry there for any
-new device. If nothing matches (e.g. no modern Android tablet frame exists upstream),
-`compose.py` falls back to a clean procedural rounded-corner + shadow frame instead
-of failing.
+[fastlane/frameit-frames](https://github.com/fastlane/frameit-frames) (MIT),
+fetched on demand and cached in `~/.cache/app-store-suite/frames`. The
+simulator/AVD → frame mapping is `FRAME_MAP` in
+[`devices.py`](app_store_suite/devices.py); frameit's coverage skews toward real
+hardware names, so lookup is by exact identifier — add an entry for a new
+device. If nothing matches (no modern Android tablet frame exists upstream, for
+instance), `compose` falls back to a clean procedural rounded-corner frame with
+a shadow rather than failing.
 
-## Note on run mode
+## Credits
 
-`auto-capture` always launches the app with plain `flutter run` (debug mode) — the
-iOS Simulator can't run release/profile builds, only physical devices can. Make sure
-your app sets `debugShowCheckedModeBanner: false` on `MaterialApp` so the red DEBUG
-ribbon doesn't show up in screenshots.
+`translate-arb` uses a vendored fork of
+[arb_translate](https://github.com/leancodepl/arb_translate) in
+[`vendor/arb_translate`](vendor/arb_translate), activated automatically on first
+use. Pass `--activate-source` to use a different fork.
+
+Bundled fonts (Inter, Poppins, Noto Sans, Playpen Sans, Arima, Source Serif 4)
+are licensed under the SIL Open Font License — see
+[`app_store_suite/fonts/OFL.txt`](app_store_suite/fonts/OFL.txt).

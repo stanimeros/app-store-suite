@@ -14,7 +14,7 @@ class Patch:
 
 
 # Each fixes a real bug hit while using `push`/`ship` against real App Store
-# Connect/Play Console accounts — see README's "Known fastlane bug" notes for
+# Connect/Play Console accounts — see README's "Fastlane patches" notes for
 # the full story on each. All three are idempotent (skipped if `new` is
 # already present) and only touch `deliver`'s bundled Ruby, never anything of
 # ours, so they're safe to re-run any time (e.g. after a fastlane upgrade).

@@ -18,8 +18,8 @@ class AppConfig:
     name: str
     flutter_dir: Path
     icon_source: Path
-    # URL scheme the app registers for debug deep links, e.g. "chronal" for
-    # chronal://<route>. Required only for `auto-capture` — see ShotConfig.
+    # URL scheme the app registers for debug deep links, e.g. "myapp" for
+    # myapp://<route>. Required only for `auto-capture` — see ShotConfig.
     deep_link_scheme: str | None = None
 
     # Store identifiers + credentials, required only for `fetch-listing` (pulling

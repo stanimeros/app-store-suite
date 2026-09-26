@@ -88,7 +88,7 @@ def cmd_setup(args: argparse.Namespace) -> None:
     print(f"  cache dir: {frames_fetch.cache_dir()}")
     print(f"  newly fetched: {fetched or '(all cached already)'}")
 
-    print("\nApplying known fastlane bug patches (see README's \"Known fastlane bug\" notes)...")
+    print("\nApplying known fastlane bug patches (see README's \"Fastlane patches\" notes)...")
     for line in apply_known_patches(cfg.app.flutter_dir):
         print(f"  {line}")
 
