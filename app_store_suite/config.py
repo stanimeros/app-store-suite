@@ -40,6 +40,44 @@ class DeviceConfig:
     identifier: str  # simulator name (iOS) or AVD name (Android)
 
 
+TEXT_COLOR_MODES = ("auto", "exact")
+OVERLAY_ANCHORS = ("top-left", "top-right", "bottom-left", "bottom-right", "device-top")
+
+
+@dataclass
+class OverlayConfig:
+    """An image (e.g. the app's mascot, transparent background) that `compose`
+    draws on top of a shot's store image.
+
+    `anchor` picks the reference point; `offset_x`/`offset_y` (fractions of the
+    canvas width, +x right, +y down) nudge it from there:
+    - `top-left` / `top-right` / `bottom-left` / `bottom-right`: that corner
+      of the canvas (the art's matching corner sits on it, inset by a small
+      margin).
+    - `device-top`: centered on the device frame's top edge, the art's bottom
+      on that edge; with `behind: true` it "peeks" over the frame, and the
+      lower `1 - visible` of the art is hidden behind the device (the device
+      moves down to make room, so it never covers the title).
+
+    `size` (and the offsets) are fractions of the canvas width — of a
+    phone-shaped canvas: on wider tablet canvases they're measured against the
+    width a phone canvas of the same height would have, so the art keeps the
+    same scale relative to the device everywhere. `rotation` in
+    degrees (counter-clockwise), `behind` draws it under the device instead of
+    over it. `image` is resolved relative to the app's flutter_dir.
+    """
+
+    image: Path
+    anchor: str = "bottom-right"
+    size: float = 0.34
+    rotation: float = 0.0
+    flip: bool = False
+    behind: bool = False
+    offset_x: float = 0.0
+    offset_y: float = 0.0
+    visible: float = 0.8
+
+
 @dataclass
 class ShotConfig:
     """A fixed, named screen the app exposes for unattended capture.
@@ -52,6 +90,7 @@ class ShotConfig:
 
     id: str
     route: str
+    overlays: list[OverlayConfig] = field(default_factory=list)
 
 
 @dataclass
@@ -62,6 +101,13 @@ class AutoCaptureConfig:
     # Covers cold-start splash, Firebase/content bootstrap, etc.
     warmup_delay: float = 0.0
     render_delay: float = 6.0
+    # iOS only. When set (e.g. "appstoresuite_route"), routes are delivered by
+    # writing the deep link into this file in the app's tmp/ dir instead of
+    # `simctl openurl` — which shows an "Open in <App>?" sheet on every link
+    # that has to be tapped by hand (and can't be when the Simulator GUI isn't
+    # scriptable, e.g. Xcode 27's DeviceHub). The app's debug router must poll
+    # the file; see README "Auto-capture requirements". Needs app.bundle_id.
+    ios_route_file: str | None = None
 
 
 @dataclass
@@ -73,6 +119,14 @@ class StyleConfig:
     subtitle_color: str | None = None
     font_bold: str = "Poppins-Bold.ttf"
     font_regular: str = "Poppins-Regular.ttf"
+    # Extra art direction appended to `generate-bgs`'s prompt (e.g. "stylized
+    # snowy mountains in the app's blue"); the raw screenshot is still the
+    # color/mood reference.
+    background_guide: str | None = None
+    # "auto": title/subtitle colors adapt to the background they sit on (ink
+    # colors become a tint of the background's hue). "exact": always use
+    # title_color/subtitle_color as given (you've checked they contrast).
+    text_color_mode: str = "auto"
     # "centered": device sits upright, bottom-anchored, centered. "tilted": device is
     # rotated by tilt_degrees, alternating left/right per shot (deterministic by shot id).
     layout: str = "centered"
@@ -268,12 +322,31 @@ def load_config(path: str | Path) -> StudioConfig:
     style_raw = raw.get("style", {})
     if not isinstance(style_raw, dict):
         raise ConfigError(f"{path}: 'style' must be a mapping")
+    def font(key: str, default: str) -> str:
+        # A bare file name is a bundled font; anything with a path separator
+        # is the app's own font file, relative to flutter_dir.
+        value = style_raw.get(key, default)
+        if "/" in value:
+            font_file = Path(value).expanduser()
+            if not font_file.is_absolute():
+                font_file = (flutter_dir / font_file).resolve()
+            if not font_file.is_file():
+                raise ConfigError(f"{path}: style.{key} font not found: {font_file}")
+            return str(font_file)
+        return value
+
+    text_color_mode = style_raw.get("text_color_mode", "auto")
+    if text_color_mode not in TEXT_COLOR_MODES:
+        raise ConfigError(f"{path}: style.text_color_mode must be one of {', '.join(TEXT_COLOR_MODES)}")
+
     style = StyleConfig(
         background_color=style_raw.get("background_color", "#FAFAF8"),
         title_color=style_raw.get("title_color", "#1A1A1A"),
         subtitle_color=style_raw.get("subtitle_color"),
-        font_bold=style_raw.get("font_bold", "Poppins-Bold.ttf"),
-        font_regular=style_raw.get("font_regular", "Poppins-Regular.ttf"),
+        font_bold=font("font_bold", "Poppins-Bold.ttf"),
+        font_regular=font("font_regular", "Poppins-Regular.ttf"),
+        background_guide=style_raw.get("background_guide") or None,
+        text_color_mode=text_color_mode,
         layout=style_raw.get("layout", "centered"),
         tilt_degrees=float(style_raw.get("tilt_degrees", 6.0)),
     )
@@ -284,10 +357,41 @@ def load_config(path: str | Path) -> StudioConfig:
     for i, shot_raw in enumerate(raw.get("shots") or []):
         if not isinstance(shot_raw, dict):
             raise ConfigError(f"{path}: shots[{i}] must be a mapping with 'id' and 'route'")
+        overlays = []
+        for j, ov in enumerate(shot_raw.get("overlays") or []):
+            where = f"shots[{i}].overlays[{j}]"
+            if not isinstance(ov, dict) or "image" not in ov:
+                raise ConfigError(f"{path}: {where} must be a mapping with at least 'image'")
+            anchor = ov.get("anchor", "bottom-right")
+            if anchor not in OVERLAY_ANCHORS:
+                raise ConfigError(f"{path}: {where}.anchor must be one of {', '.join(OVERLAY_ANCHORS)}")
+            size = float(ov.get("size", 0.34))
+            if size <= 0:
+                raise ConfigError(f"{path}: {where}.size must be greater than 0")
+            visible = float(ov.get("visible", 0.8))
+            if not 0 <= visible <= 1:
+                raise ConfigError(f"{path}: {where}.visible must be between 0 and 1")
+            image = Path(ov["image"]).expanduser()
+            if not image.is_absolute():
+                image = (flutter_dir / image).resolve()
+            overlays.append(
+                OverlayConfig(
+                    image=image,
+                    anchor=anchor,
+                    size=size,
+                    rotation=float(ov.get("rotation", 0)),
+                    flip=bool(ov.get("flip", False)),
+                    behind=bool(ov.get("behind", anchor == "device-top")),
+                    offset_x=float(ov.get("offset_x", 0)),
+                    offset_y=float(ov.get("offset_y", 0)),
+                    visible=visible,
+                )
+            )
         shots.append(
             ShotConfig(
                 id=_require_key(shot_raw, "id", where=f"shots[{i}]", config_path=path),
                 route=_require_key(shot_raw, "route", where=f"shots[{i}]", config_path=path),
+                overlays=overlays,
             )
         )
 
@@ -299,6 +403,7 @@ def load_config(path: str | Path) -> StudioConfig:
     auto_capture = AutoCaptureConfig(
         warmup_delay=float(ac_raw.get("warmup_delay", 0)),
         render_delay=float(ac_raw.get("render_delay", 6.0)),
+        ios_route_file=ac_raw.get("ios_route_file") or None,
     )
 
     return StudioConfig(

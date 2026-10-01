@@ -39,8 +39,52 @@ class BackgroundGenerationError(RuntimeError):
     pass
 
 
+# Layout, all under <output_dir>/backgrounds/:
+#   shots/set<N>/<shot_id>.png       generate-bgs candidates (one set per run)
+#   shots/choices.json               bg-pick: {shot_id: set number}
+#   feature_graphic/set<N>/background.png
+#   feature_graphic/choice.json      fg-bg-pick: {"set": N}
+
+
+def _root(cfg: StudioConfig) -> Path:
+    root = cfg.output_dir / "backgrounds"
+    _migrate_legacy_layout(cfg, root)
+    return root
+
+
+def _migrate_legacy_layout(cfg: StudioConfig, root: Path) -> None:
+    """Moves the old flat layout (backgrounds/set<N>/, feature_graphic_backgrounds/,
+    and the two *_choice(s).json files loose in output_dir) into the grouped one
+    above. Idempotent; a no-op once migrated."""
+    out = cfg.output_dir
+    legacy_shot_sets = [d for d in root.glob("set*") if d.is_dir()] if root.is_dir() else []
+    legacy_files = [
+        out / "background_choices.json",
+        out / "feature_graphic_choice.json",
+        out / "feature_graphic_backgrounds",
+    ]
+    if not legacy_shot_sets and not any(p.exists() for p in legacy_files):
+        return
+    shots = root / "shots"
+    fg = root / "feature_graphic"
+    shots.mkdir(parents=True, exist_ok=True)
+    fg.mkdir(parents=True, exist_ok=True)
+    for d in legacy_shot_sets:
+        d.rename(shots / d.name)
+    if (out / "background_choices.json").exists():
+        (out / "background_choices.json").rename(shots / "choices.json")
+    if (out / "feature_graphic_choice.json").exists():
+        (out / "feature_graphic_choice.json").rename(fg / "choice.json")
+    legacy_fg = out / "feature_graphic_backgrounds"
+    if legacy_fg.is_dir():
+        for d in legacy_fg.iterdir():
+            d.rename(fg / d.name)
+        legacy_fg.rmdir()
+    print(f"  (moved backgrounds into the grouped layout under {root})")
+
+
 def _choices_path(cfg: StudioConfig) -> Path:
-    return cfg.output_dir / "background_choices.json"
+    return backgrounds_dir(cfg) / "choices.json"
 
 
 def load_choices(cfg: StudioConfig) -> dict[str, int]:
@@ -66,7 +110,7 @@ def clear_choice(cfg: StudioConfig, shot_id: str) -> None:
 
 
 def backgrounds_dir(cfg: StudioConfig) -> Path:
-    return cfg.output_dir / "backgrounds"
+    return _root(cfg) / "shots"
 
 
 def set_dir(cfg: StudioConfig, set_number: int) -> Path:
@@ -154,7 +198,10 @@ def generate_backgrounds(
     for raw_path in raw_paths:
         shot_id = raw_path.stem
         print(f"  generating set{set_number}/{shot_id}...")
-        png_bytes = _generate_one(api_key, raw_path, BACKGROUND_PROMPT)
+        prompt = BACKGROUND_PROMPT
+        if cfg.style.background_guide:
+            prompt += f" Art direction: {cfg.style.background_guide.strip()}"
+        png_bytes = _generate_one(api_key, raw_path, prompt)
         dest = dest_dir / f"{shot_id}.png"
         dest.write_bytes(png_bytes)
         written.append(dest)
@@ -171,7 +218,7 @@ def generate_backgrounds(
 
 
 def _fg_choice_path(cfg: StudioConfig) -> Path:
-    return cfg.output_dir / "feature_graphic_choice.json"
+    return fg_backgrounds_dir(cfg) / "choice.json"
 
 
 def load_fg_choice(cfg: StudioConfig) -> int | None:
@@ -194,7 +241,7 @@ def clear_fg_choice(cfg: StudioConfig) -> None:
 
 
 def fg_backgrounds_dir(cfg: StudioConfig) -> Path:
-    return cfg.output_dir / "feature_graphic_backgrounds"
+    return _root(cfg) / "feature_graphic"
 
 
 def fg_set_dir(cfg: StudioConfig, set_number: int) -> Path:

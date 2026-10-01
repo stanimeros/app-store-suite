@@ -46,7 +46,17 @@ def device_state(udid: str) -> str:
 def boot(udid: str, timeout: float = 120) -> None:
     if device_state(udid) != "Booted":
         _simctl("boot", udid)
-    subprocess.run(["open", "-a", "Simulator", "--args", "-CurrentDeviceUDID", udid], check=True)
+    # The Simulator GUI is a convenience (watching the run, clicking the
+    # first-openurl dialog); screenshots go through `simctl io` and work
+    # headless. Some Xcode versions (e.g. 27) don't ship/register an app
+    # named "Simulator", so don't fail the whole capture over it.
+    result = subprocess.run(
+        ["open", "-a", "Simulator", "--args", "-CurrentDeviceUDID", udid],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"  note: couldn't open the Simulator app ({result.stderr.strip()}); continuing headless")
     deadline = time.time() + timeout
     while time.time() < deadline:
         if device_state(udid) == "Booted":
@@ -213,6 +223,19 @@ def open_url(udid: str, url: str, app_name: str = "App") -> None:
 
     _simctl("openurl", udid, url)
     _dismiss_open_dialog(app_name)
+
+
+def write_route_file(udid: str, bundle_id: str, filename: str, url: str) -> None:
+    """Delivers a deep link without `simctl openurl` (no confirmation sheet):
+    writes it to <app data container>/tmp/<filename>, which the app's debug
+    router polls (Dart's `Directory.systemTemp` is that same tmp/ dir)."""
+    container = Path(_simctl("get_app_container", udid, bundle_id, "data").strip())
+    tmp_dir = container / "tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    # Write then rename, so the app never reads a half-written file.
+    staging = tmp_dir / f".{filename}.partial"
+    staging.write_text(url, encoding="utf-8")
+    staging.replace(tmp_dir / filename)
 
 
 def screenshot(udid: str, dest: Path) -> None:

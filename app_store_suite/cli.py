@@ -125,7 +125,7 @@ def cmd_generate_bgs(args: argparse.Namespace) -> None:
 
     written = backgrounds.generate_backgrounds(cfg, device_key, lang, shot_ids)
     print(f"\n{len(written)} background(s) written to set{backgrounds.available_sets(cfg)[-1]}.")
-    print("Review them under fastlane/appstoresuite/backgrounds/, then run "
+    print("Review them under fastlane/appstoresuite/backgrounds/shots/, then run "
           "'appstoresuite bg-pick' to choose a set per shot.")
 
 

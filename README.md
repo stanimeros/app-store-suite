@@ -148,12 +148,54 @@ style:
   font_regular: "Poppins-Regular.ttf"
   layout: "centered"            # centered | tilted
   tilt_degrees: 6               # for layout: tilted; alternates per shot
+  background_guide: "..."       # extra art direction for generate-bgs
+  text_color_mode: "auto"       # auto | exact (use title/subtitle colors as given)
 ```
+
+`font_bold`/`font_regular` take a bundled font's file name, or a path (any
+value with a `/`) to the app's own font file, relative to `flutter_dir` — e.g.
+`assets/fonts/MyFont-Bold.ttf` — so store titles use the app's exact
+typeface.
 
 `title_color` is kept only if it contrasts with the background; otherwise it's
 swapped for white-on-dark or near-black-on-light automatically. Tilt direction
 is derived from a hash of the shot id, so a shot renders identically across
 devices and re-runs.
+
+### Overlays (e.g. a mascot)
+
+Any shot can list images with transparent backgrounds that `compose` draws on
+the store image, on top of (or behind) the device — nothing needs to be
+visible in the raw capture:
+
+```yaml
+shots:
+  - id: 1-home
+    route: shot/home
+    overlays:
+      - image: assets/images/mascot_peek.png  # relative to flutter_dir
+        anchor: device-top   # top-left | top-right | bottom-left | bottom-right | device-top
+        size: 0.34           # width as a fraction of the canvas width (phone-equivalent on tablets)
+        rotation: 0          # degrees, counter-clockwise, about the art's center
+        flip: false          # mirror horizontally
+        behind: true         # under the device (default only for device-top)
+        offset_x: 0.12       # nudge, as fractions of the canvas width (+x right,
+        offset_y: 0          # +y down)
+        visible: 0.8         # device-top + behind: share shown above the frame
+  - id: 2-settings
+    route: shot/settings
+    overlays:
+      - image: assets/images/mascot_wave.png
+        anchor: bottom-right
+        size: 0.42
+        rotation: -8
+```
+
+Corner anchors put the art's matching corner at that canvas corner (inset a
+little). `device-top` centers it on the device frame's top edge; with `behind`
+it peeks over the frame, and the device moves down to make room so the title
+is never covered (the room reserved is the art's unrotated height, so with a
+large `rotation` or negative `offset_y` check the title stays clear).
 
 ## Auto-capture requirements
 
@@ -201,14 +243,39 @@ Security → Accessibility). Without it, capture proceeds after a short delay an
 that shot captures the dialog instead of your screen — grant access and re-run.
 This is also where a real sign-in prompt gets handled, if a route ever needs one.
 
+**No dialog: `ios_route_file`.** Set `auto_capture.ios_route_file` (e.g.
+`appstoresuite_route`) and iOS routes are delivered by writing the deep link
+into `<app data container>/tmp/<that file>` instead of `simctl openurl`, so
+there's no sheet to tap and capture runs fully headless. Required on Xcode 27+,
+whose DeviceHub (the Simulator app's replacement) can't be scripted to tap it.
+The app's debug router must poll the file and push the route it contains, e.g.:
+
+```dart
+// Debug builds only; Directory.systemTemp is the app's tmp/ dir.
+final file = File('${Directory.systemTemp.path}/appstoresuite_route');
+Timer.periodic(const Duration(milliseconds: 400), (_) {
+  if (!file.existsSync()) return;
+  final uri = Uri.parse(file.readAsStringSync().trim());
+  file.deleteSync();
+  navigatorKey.currentState?.pushNamed(
+      uri.path + (uri.hasQuery ? '?${uri.query}' : ''));
+});
+```
+
 ## Where files go
 
 ```
 fastlane/
   appstoresuite/          # this tool's working data — commit it
-    raw/                  #   raw captures (expensive to redo)
-    backgrounds/set<N>/   #   generated background candidates
+    raw/<lang>/<device>/  #   raw captures (expensive to redo)
+    backgrounds/
+      shots/set<N>/       #   generate-bgs candidates, one set per run
+      shots/choices.json  #   bg-pick: which set each shot uses
+      feature_graphic/set<N>/       # generate-fg-bg candidates
+      feature_graphic/choice.json   # fg-bg-pick
     <lang>/titles.json    #   shot titles/subtitles
+    <lang>/feature_graphic.png
+    play_store_icon.png
     contact_sheet_<lang>.png
   screenshots/<locale>/                          # store-facing (iOS)
   metadata/<platform>/<locale>/*.txt             # store-facing (listing copy)

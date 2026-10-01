@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from .compose import _build_background, _font_for_text, _hex_to_rgb, _sampled_text_color
+from .compose import _build_background, _font_for_text, _hex_to_rgb, _text_color
 from .config import StudioConfig
 
 WIDTH, HEIGHT = 1024, 500
@@ -103,16 +103,17 @@ def generate_feature_graphic(
     # background whose brightness varies across the banner still keeps both
     # lines visible, matching the configured brand color whenever it already
     # contrasts enough against that region.
-    title_color = _sampled_text_color(
-        canvas, _hex_to_rgb(cfg.style.title_color), text_left, top, WIDTH - margin, top + block_h
+    title_color = _text_color(
+        canvas, cfg.style, cfg.style.title_color, text_left, top, WIDTH - margin, top + block_h
     )
     draw.text((text_left, top), headline, font=font, fill=title_color)
 
     if subtitle and sub_font:
         sub_top = top + block_h + sub_gap
-        sub_color = _sampled_text_color(
+        sub_color = _text_color(
             canvas,
-            _hex_to_rgb(cfg.style.subtitle_color or cfg.style.title_color),
+            cfg.style,
+            cfg.style.subtitle_color or cfg.style.title_color,
             text_left, sub_top, WIDTH - margin, sub_top + sub_line_height,
         )
         draw.text((text_left, sub_top), subtitle, font=sub_font, fill=sub_color)

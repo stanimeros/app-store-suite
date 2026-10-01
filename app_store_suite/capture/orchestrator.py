@@ -29,7 +29,15 @@ def device_session(
         ios.boot(udid)
         identifier = udid
         take_screenshot = lambda dest: ios.screenshot(udid, dest)  # noqa: E731
-        open_url = lambda url: ios.open_url(udid, url, cfg.app.name)  # noqa: E731
+        route_file = cfg.auto_capture.ios_route_file
+        if route_file:
+            if not cfg.app.bundle_id:
+                raise ValueError("auto_capture.ios_route_file needs app.bundle_id in the config")
+            open_url = lambda url: ios.write_route_file(  # noqa: E731
+                udid, cfg.app.bundle_id, route_file, url
+            )
+        else:
+            open_url = lambda url: ios.open_url(udid, url, cfg.app.name)  # noqa: E731
     else:
         existing_serial = android.find_running_serial(device.identifier)
         if existing_serial:

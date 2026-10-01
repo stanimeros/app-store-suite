@@ -47,10 +47,21 @@ devices:
 # auto_capture:
 #   warmup_delay: 15 # after flutter run is ready, before the first deep link
 #   render_delay: 6  # after each deep link, before screenshotting
+#   # iOS: deliver routes via a file the app's debug router polls instead of
+#   # `simctl openurl` (no "Open in <App>?" sheet to tap; needed on Xcode 27+,
+#   # whose DeviceHub can't be scripted). See README "Auto-capture requirements".
+#   ios_route_file: appstoresuite_route
 
 # shots:
 #   - id: home
 #     route: shot/home
+#     # Optional art drawn on the store image (e.g. a mascot, transparent PNG);
+#     # see README "Overlays".
+#     overlays:
+#       - image: assets/images/mascot.png # relative to flutter_dir
+#         anchor: device-top # top-left | top-right | bottom-left | bottom-right | device-top
+#         size: 0.32
+#         rotation: 0
 #   - id: pricing
 #     route: shot/pricing
 
@@ -60,6 +71,12 @@ style:
   # no solid-color fallback for those (see README's "Backgrounds" section).
   background_color: "#FAFAF8"
   title_color: "#1A1A1A"
+  # subtitle_color: "#4A4A4A"
+  # text_color_mode: "auto" # auto (adapt to the background) | exact (use the colors above as-is)
+  # A bundled font file name, or a path to the app's own font (relative to
+  # flutter_dir), e.g. "assets/fonts/MyFont-Bold.ttf".
   font_bold: "Poppins-Bold.ttf"
   font_regular: "Poppins-Regular.ttf"
   layout: "centered" # centered | tilted
+  # Extra art direction appended to generate-bgs's prompt, e.g.
+  # background_guide: "Soft snowy mountains in the app's blue."

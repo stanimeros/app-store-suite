@@ -13,7 +13,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageStat
 from . import backgrounds
 from . import devices as devices_mod
 from . import titles_store
-from .config import DeviceConfig, StudioConfig, StyleConfig
+from .config import DeviceConfig, OverlayConfig, StudioConfig, StyleConfig
 from .frames import fetch as frames_fetch
 
 _FONTS_DIR = Path(__file__).parent / "fonts"
@@ -33,6 +33,14 @@ _FALLBACK_FONTS = {"bold": "NotoSans-Bold.ttf", "regular": "NotoSans-Regular.ttf
 _cmap_cache: dict[str, set[int]] = {}
 
 
+def font_path(name: str) -> Path:
+    """A bundled font by file name (e.g. "Inter-Regular.ttf"), or — when the
+    config gives a path (resolved to absolute against flutter_dir by
+    load_config) — the app's own font file, e.g. assets/fonts/X.ttf."""
+    candidate = Path(name)
+    return candidate if candidate.is_absolute() else _FONTS_DIR / name
+
+
 def _font(name: str, size: int) -> ImageFont.FreeTypeFont:
     # layout_engine=BASIC opts out of Pillow's raqm-based complex text shaping.
     # We don't need it (no ligatures/RTL/reordering in any script this project
@@ -40,12 +48,12 @@ def _font(name: str, size: int) -> ImageFont.FreeTypeFont:
     # Latin-punctuation-then-Greek boundary (e.g. ", χάρτης") can misplace one
     # cluster's glyph origin, rendering as a spurious mid-word gap. BASIC just
     # advances glyph-by-glyph per character and doesn't hit this.
-    return ImageFont.truetype(str(_FONTS_DIR / name), size, layout_engine=ImageFont.Layout.BASIC)
+    return ImageFont.truetype(str(font_path(name)), size, layout_engine=ImageFont.Layout.BASIC)
 
 
 def _covers(font_name: str, text: str) -> bool:
     if font_name not in _cmap_cache:
-        _cmap_cache[font_name] = set(TTFont(str(_FONTS_DIR / font_name)).getBestCmap())
+        _cmap_cache[font_name] = set(TTFont(str(font_path(font_name))).getBestCmap())
     cmap = _cmap_cache[font_name]
     return all(ord(c) in cmap for c in text if not c.isspace())
 
@@ -105,6 +113,16 @@ def _readable_text_color(
     if contrasts:
         return preferred_rgb
     return (255, 255, 255) if _luminance(bg_rgb) < 128 else (26, 26, 26)
+
+
+def _text_color(
+    canvas: Image.Image, style: StyleConfig, configured: str, left: int, top: int, right: int, bottom: int
+) -> tuple[int, int, int]:
+    """`configured` as-is when style.text_color_mode is "exact", otherwise a color
+    sampled against the region it's drawn over (see `_sampled_text_color`)."""
+    if style.text_color_mode == "exact":
+        return _hex_to_rgb(configured)
+    return _sampled_text_color(canvas, _hex_to_rgb(configured), left, top, right, bottom)
 
 
 def _sampled_text_color(
@@ -246,6 +264,62 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFon
     return lines or [text]
 
 
+# Phone store canvases are ~0.46 as wide as they are tall; tablets are much
+# wider. Overlay size/offsets are measured against this "phone-equivalent
+# width" so a mascot keeps the same scale relative to the device on every
+# device instead of ballooning on wide tablet canvases.
+_PHONE_ASPECT = 0.46
+
+
+def _overlay_unit(canvas_w: int, canvas_h: int) -> float:
+    return min(canvas_w, canvas_h * _PHONE_ASPECT)
+
+
+def _overlay_image(overlay: OverlayConfig, unit: float) -> Image.Image | None:
+    """The overlay art scaled to `size` and flipped, but not yet rotated."""
+    if not overlay.image.is_file():
+        print(f"  warning: overlay image not found: {overlay.image}")
+        return None
+    art = Image.open(overlay.image).convert("RGBA")
+    if overlay.flip:
+        art = art.transpose(Image.FLIP_LEFT_RIGHT)
+    w = round(unit * overlay.size)
+    return art.resize((w, round(art.height * w / art.width)), Image.LANCZOS)
+
+
+def _paste_overlay(
+    canvas: Image.Image,
+    overlay: OverlayConfig,
+    art: Image.Image,
+    device_box: tuple[int, int, int, int],
+    margin: int,
+) -> None:
+    """Places `art` per its anchor/offset, then rotates it about its own center
+    (so rotation never shifts where it's anchored)."""
+    canvas_w, canvas_h = canvas.size
+    inset = round(margin * 0.25)
+    w, h = art.size
+    if overlay.anchor == "device-top":
+        dx, dy, dw, _ = device_box
+        if overlay.behind:
+            visible_h = round(h * overlay.visible)
+            x, y = dx + dw / 2 - w / 2, dy - visible_h
+        else:
+            x, y = dx + dw / 2 - w / 2, dy - h
+    else:
+        x = inset if overlay.anchor.endswith("left") else canvas_w - w - inset
+        y = inset if overlay.anchor.startswith("top") else canvas_h - h - inset
+    unit = _overlay_unit(canvas_w, canvas_h)
+    x += overlay.offset_x * unit
+    y += overlay.offset_y * unit
+
+    if overlay.rotation:
+        cx, cy = x + w / 2, y + h / 2
+        art = art.rotate(overlay.rotation, expand=True, resample=Image.BICUBIC)
+        x, y = cx - art.width / 2, cy - art.height / 2
+    canvas.paste(art, (round(x), round(y)), art)
+
+
 def render_shot(
     cfg: StudioConfig,
     lang: str,
@@ -258,6 +332,7 @@ def render_shot(
     style: StyleConfig | None = None,
     dest_override: Path | None = None,
     bg_image_path: Path | None = None,
+    overlays: list[OverlayConfig] | None = None,
 ) -> Path:
     """`style` defaults to `cfg.style`. `dest_override` is the file to write —
     required; compose_all points it directly at the real fastlane screenshots/images
@@ -303,13 +378,12 @@ def render_shot(
     # more likely with an AI-generated image than a flat fill — still gets its own
     # visible color per block, matching the configured brand color whenever it
     # already contrasts enough against that region.
-    title_color = _sampled_text_color(
-        canvas, _hex_to_rgb(style.title_color), 0, text_top, canvas_w, text_top + text_block_h
+    title_color = _text_color(
+        canvas, style, style.title_color, 0, text_top, canvas_w, text_top + text_block_h
     )
     sub_color = (
-        _sampled_text_color(
-            canvas,
-            _hex_to_rgb(style.subtitle_color or style.title_color),
+        _text_color(
+            canvas, style, style.subtitle_color or style.title_color,
             0, sub_top, canvas_w, sub_top + sub_line_height * len(sub_lines),
         )
         if sub_lines
@@ -338,6 +412,23 @@ def render_shot(
             )
 
     content_top = text_top + total_text_h + round(canvas_h * _TEXT_DEVICE_GAP_RATIO)
+
+    overlay_arts = [
+        (ov, art)
+        for ov in overlays or []
+        if (art := _overlay_image(ov, _overlay_unit(canvas_w, canvas_h))) is not None
+    ]
+    # An overlay peeking over the device's top edge needs room between the
+    # text and the device, or the device would cover the title.
+    reserve = max(
+        (
+            round(art.height * ov.visible) if ov.behind else art.height
+            for ov, art in overlay_arts
+            if ov.anchor == "device-top"
+        ),
+        default=0,
+    )
+    content_top += reserve
 
     framed = _framed_device_image(raw, device)
 
@@ -371,7 +462,15 @@ def render_shot(
 
     paste_x = round((canvas_w - framed_resized.width) / 2)
     paste_y = canvas_h - margin - framed_resized.height
+
+    device_box = (paste_x, paste_y, framed_resized.width, framed_resized.height)
+    for ov, art in overlay_arts:
+        if ov.behind:
+            _paste_overlay(canvas, ov, art, device_box, margin)
     canvas.paste(framed_resized, (paste_x, paste_y), framed_resized)
+    for ov, art in overlay_arts:
+        if not ov.behind:
+            _paste_overlay(canvas, ov, art, device_box, margin)
 
     dest = dest_override
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -470,6 +569,7 @@ def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) ->
 
     ios_n = 1
     skipped_shots: set[str] = set()
+    overlays_by_shot = {shot.id: shot.overlays for shot in cfg.shots}
     for device_key, device in devices.items():
         device_raw_dir = raw_root / device_key
         if not device_raw_dir.exists():
@@ -498,6 +598,7 @@ def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) ->
                 render_shot(
                     cfg, lang, device_key, device, shot_id, title, subtitle, raw_path,
                     dest_override=dest, bg_image_path=bg_image_path,
+                    overlays=overlays_by_shot.get(shot_id),
                 )
                 outputs.append(dest)
                 primary_outputs_by_device[device_key].append(dest)
@@ -509,6 +610,7 @@ def compose_all(cfg: StudioConfig, lang: str, only_device: str | None = None) ->
                 render_shot(
                     cfg, lang, device_key, device, shot_id, title, subtitle, raw_path,
                     dest_override=primary_dest, bg_image_path=bg_image_path,
+                    overlays=overlays_by_shot.get(shot_id),
                 )
                 outputs.append(primary_dest)
                 primary_outputs_by_device[device_key].append(primary_dest)
