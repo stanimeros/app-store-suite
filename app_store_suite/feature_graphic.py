@@ -10,6 +10,17 @@ from .config import StudioConfig
 WIDTH, HEIGHT = 1024, 500
 
 
+def _rounded_icon(icon_path: Path, size: int) -> Image.Image:
+    """The whole icon as a home-screen-style rounded square (corner radius
+    ~22.5% of the side, close to iOS's), antialiased by drawing the mask at 4x."""
+    icon = Image.open(icon_path).convert("RGBA").resize((size, size), Image.LANCZOS)
+    big = size * 4
+    mask = Image.new("L", (big, big), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, big - 1, big - 1), radius=round(big * 0.225), fill=255)
+    icon.putalpha(mask.resize((size, size), Image.LANCZOS))
+    return icon
+
+
 def _icon_with_transparency(icon_path: Path) -> Image.Image:
     """Most icon_source assets here are a flat-colored badge (e.g. a circular
     logo) on a solid, fully-opaque background rather than a true transparent
@@ -71,7 +82,12 @@ def generate_feature_graphic(
     icon_size = 220
     margin = 64
     if cfg.app.icon_source.exists():
-        icon = _icon_with_transparency(cfg.app.icon_source).resize((icon_size, icon_size), Image.LANCZOS)
+        if cfg.app.icon_shape == "rounded":
+            icon = _rounded_icon(cfg.app.icon_source, icon_size)
+        else:
+            icon = _icon_with_transparency(cfg.app.icon_source).resize(
+                (icon_size, icon_size), Image.LANCZOS
+            )
         canvas.paste(icon, (margin, (HEIGHT - icon_size) // 2), icon)
         text_left = margin + icon_size + 36
     else:

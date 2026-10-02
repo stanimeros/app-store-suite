@@ -201,6 +201,9 @@ def generate_backgrounds(
         prompt = BACKGROUND_PROMPT
         if cfg.style.background_guide:
             prompt += f" Art direction: {cfg.style.background_guide.strip()}"
+        shot = next((s for s in cfg.shots if s.id == shot_id), None)
+        if shot and shot.background_guide:
+            prompt += f" For this particular image: {shot.background_guide.strip()}"
         png_bytes = _generate_one(api_key, raw_path, prompt)
         dest = dest_dir / f"{shot_id}.png"
         dest.write_bytes(png_bytes)
@@ -288,7 +291,13 @@ def generate_feature_graphic_background(cfg: StudioConfig) -> Path:
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"  generating feature graphic background set{set_number}...")
-    png_bytes = _generate_one(api_key, cfg.app.icon_source, FEATURE_GRAPHIC_PROMPT)
+    prompt = FEATURE_GRAPHIC_PROMPT
+    # Same art direction as the shot backgrounds, so the banner and the
+    # screenshots read as one set instead of the banner always coming out in
+    # the prompt's default calm palette.
+    if cfg.style.background_guide:
+        prompt += f" Art direction: {cfg.style.background_guide.strip()}"
+    png_bytes = _generate_one(api_key, cfg.app.icon_source, prompt)
     dest = dest_dir / "background.png"
     dest.write_bytes(png_bytes)
     return dest

@@ -31,6 +31,12 @@ class AppConfig:
     asc_key_path: Path | None = None  # .p8 file
     android_package_name: str | None = None
     play_json_key: Path | None = None  # service account json
+    # How the feature graphic draws icon_source. "cutout" (default) keys out
+    # the icon's solid background so only the badge shape remains - right for
+    # a logo on a flat fill. "rounded" keeps the whole icon as a rounded
+    # square, the way it looks on a home screen - right for an icon whose
+    # solid background *is* part of the design (e.g. a white card).
+    icon_shape: str = "cutout"
 
 
 @dataclass
@@ -91,6 +97,11 @@ class ShotConfig:
     id: str
     route: str
     overlays: list[OverlayConfig] = field(default_factory=list)
+    # Appended to `generate-bgs`'s prompt after `style.background_guide`, for
+    # this shot only - lets each shot's background keep the shared style but
+    # get its own color/character, so a set doesn't read as one image four
+    # times.
+    background_guide: str | None = None
 
 
 @dataclass
@@ -296,6 +307,7 @@ def load_config(path: str | Path) -> StudioConfig:
         name=_require_key(app_raw, "name", where="app", config_path=path),
         flutter_dir=flutter_dir,
         icon_source=flutter_dir / _require_key(app_raw, "icon_source", where="app", config_path=path),
+        icon_shape=app_raw.get("icon_shape", "cutout"),
         deep_link_scheme=app_raw.get("deep_link_scheme"),
         bundle_id=app_raw.get("bundle_id"),
         asc_key_id=app_raw.get("asc_key_id"),
@@ -392,6 +404,7 @@ def load_config(path: str | Path) -> StudioConfig:
                 id=_require_key(shot_raw, "id", where=f"shots[{i}]", config_path=path),
                 route=_require_key(shot_raw, "route", where=f"shots[{i}]", config_path=path),
                 overlays=overlays,
+                background_guide=shot_raw.get("background_guide"),
             )
         )
 
